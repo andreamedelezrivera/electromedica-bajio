@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>Electromédica del Bajío</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Segoe UI,system-ui,sans-serif;background:#F4F6F9}input,select,textarea,button{font-family:inherit}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect}=React;
+const LOGO_DATA="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAYAAAA5ZDbSAAA0BElEQVR42u2deZwdRbn3v1XV3WedLTPJhCQkgYSwhUCAAGGLAVFZBBRcQEARBQR979WrV0QuCojXK3rVKy6ILCKggoAIiaxC2BEIIUAgLAkhQLaZZNazdVfV+0d1n3NmSEKQJASc/nx6zjrn9KlfPc/ze5Z6ShhjLEPH+/aQQ0Pw/j3EEMDv78O+VwG21m7S9w+p6Hdb9QixSd8/BPDQMQTw0DEE8NDxbgP8r0xO/iUA/lcmJ0Mq+n3hKNqN/HF2COAtzN96V923IYCHjnd8eO9XzWuxYC0DUykWF6GNJS6WYinev5zjfQGwsRZrrIu9CoFSsgqkehufo7XBWIsAhBTI9wHg71mAjbEYa1FSoKQcYGxK5ZAVnb0sW9nN8o4eVnf301+qEIYGISAIPHLpgObGLCPbGtiqrYn21gbSaX/AhDDGoI1FCoGU702wxWbNB1v7joiNtW7QpRRIWUN06bI1PPbMqzwybzFPvfA6L7/WycrVffT2FqESgrE1xiyEU9VCgFQQKPK5NO2tDUwc28au241i+m7bsOfkcYwZ2VyTbmOwxiKl5L0k2OK9kPC31g2w79Xk6/lFy5k1ZwG3znmGJ59/g+7OHtAaPAWeQnoSpaRTs0IwGBNbVe8GrS0m0lCJ4s/waG5tYOoOozn8wMkcfuBO7DBhZPV/w0ijpHhP2OwtGuBEYr0Y2EKpws13zed3N/+DOY+/RKm7HzwPkfbwfYUUwhEsa+NzQ0YABAI3Dxxo1loqUYQthRBq0k05DthjAp89chpHH7IbuUwAQBRppJKIIYDf/qGNQUmJEILu3hKX3fAQv7nuIRYufA2URGUCfE+5SWCNAzNRv/UimtBlu4H+sLVV0KV0kh9qgy6UwRgmbTeKLx47nS98Yn+aGzNgrbPTW6iN3uIAttZijMXzFGGk+e31D/GjK/7OopeWQ1qRygRgHckilrbBgYYBz1HnGdkE54Hu0oA3rAN7KSQIKBfLUAoZv207//G5gznt0/vje8pJ8xZon7cogI2xsYsDdz+ykLN+/Fcef+IlyASkMwEmdmOUlBgkYSXEU2KtxC0RWiFqjxzutl43u1feNAK2bg6I2GUCo23MzSSlYgWKZfaYOoH/+frRHDx9+6qrtSVJ8xYDcKQdieorljn7xzfz86vvA2tJN6RrwCpFqDWmr4yQhrFjWlnZG1GpVN4B4Rmsv+0AAVdSoEsVorJG5DMEnsBoDcKRuFJfEYCvnPABLvzqUTTkUoSRxlNyCODB4D7x7FI+/62rmD//FfyWPFKIqi0OjcX0FmlqSHHgvjsy6eC92Gbb0fz3v/+U1zsL+L4cJIkWrGCtDMhaR6YEiPhtVVBjKZdCEFUiRm49gpNO/ShP3/UoDz74LF09RURjjkBJJ61KApbKmn52mTyOy75/AtN2GUcU6ao2+pcNdFjrghW+p7j6lsc4/dxr6S+USbc2EkUaKx0Q5d4iTbmAQz++F1OPOojy+PG8qCHT14cwZoAkCpHwJIFQYh1SKhAI94yM50BVczukpRQgwRPQu+tu7DJtN6YvfoXnZ9/L7NufYnVPAb/BkSxrIdPawNMvvs6ME/6XX553PJ87em+0NjEz/xcE2FoXWvSU4vxf/o3v/OSveNkUqXyGSGs8T1IqRYhKiSNmTmbmZ4+kd5vxLOgDvVoTBIK0NVgh38SVhBDoSGOK4QYGVtZCswVQiQiLJfxCmdcKPmLkeLb798/xrSNf5b7f3cyse57F+AGplEcYaVK5DGGkOfkbV7D41Q7O+3+Ho40B60Ko9l8F4MRHVUrylQuv5+JL7yQYlgcbkxSlKHX1s93YYXz+zBNg+l7M7QfRoWnyBUFKoD1JoOuorhAxcRIYbWhqybLN2Ha0FZSNJRpMsKpRtYSJ25rvbS2BEiit2WpkK/lAIYTAGM2ilZaodSzTv/MV9j30Ca782Z9ZuGQ1QUseow1CClKNWc7/35tY1dXHL8/9FNrEMe53QZS9zQ+uixx6SnLad/7Ab668h3RbA5HWOK9TUOnq45hDp/LBL3+KpzMtrOk0NHkQpAS+gECAUJBWYIUAIbFSuoiVUuhCLzvsvgvf/O+T6el2aniwY5TAbXHXY+LbyIK2tdciDf2hRRooC0FbShAaw3MdkJu6B1/59UTu++V1XHfLY6iGHFJYtLZk2pr41WV3US5HXHbhZ9DaxCZEvL8BTiJTX7nwen5z5d9JtzXGPqQLAfphhW9+9ShGHnsY96+BdI+mLSXxpQPWFxZfgFKQVcIBqxQozwmmFKA8hJcirFhspPFi/1QMmmiWgae2oCxoQBuIAGEgIwWhsCgDkYBQCjxp6evRPOo3sdfZX2Sb7bfm/37+V0rKI/AVYRiRHt7I5VffQyrl8ctzPxX/zvXb5LeKyaxDbBicBrXvBsAJW77wktu5+De314ErqJRDWjzLt77/efr33YtHVmjaAoGfkvjCkpKQkgJfCHxhUQrSAqxUoCQo6X6mVCAVSgjyyhEtT619TEy9FCcx71jDRCIGWkJoLRXjtEdoLcpYFAKVgozWPLkCJhzzEc7bup3/OfdKOssRqbRHFGrSbY386rK7aG9r5DtnHPqWLtQ/Z6fFOj9js/F4HYN73W1zOeeim0gNaxgA7oisxwU/+TLL99qLhcsjRqQEKSXISEtOCbLV+5CTkFcQyBhgqUBKd6ukk2YghSUtLQGWFJZAWFLx6YuBj1NYMhKysepPy9qZkYKssmRk7T0Z5e6nlKQ9JVmyPGLZ1Kmc+5MzGdUQUC6FSCWItCHV2sB3f/wXrp31OL6nYnX9XlDRG5j+S0KPC15axhe+dRVe2q+SjrAS0pZRfPdHZ/DChEl0dES0ZxSeqA1wEJ8pKQiExRPgSfAlDlilQLm4tAMbMilFe17Qg0eS/5d1s9vG/m/iO0cWCiXntmkLWjgVHRknyZ4VeMLiWfAMKCFIgmhlA20ZxerOiBe3ncTZPz6D7331F6woRPiBwliLl0tx6jnXMGXSKCZvN2qzRbzeGcAbAG4SFy6XQ0486yp6+0qkGjLV6FSWiO98/zRenjiJ1Z0RbRlnb2vgClIJyAJ8AT4xwDDQBrugMfg+Pb0lnp7/Oj0lgydFzfONM05Oldl4ArqP2GbcSFCqCnJoY5CtRQGeFHjW4uFsdczBnRrU0JJWrFkTsXDsBL5+4Rc47+u/pmhACIvyPPr7S5x01u956Jqv4fvqnabHt4xIljYGTynO+slf+Z+f3uIYcxyYr/T0cv53TiI85EBeWRnRmpYEUjhwYzWZEjUJ9mOAPSx+IAn6ejnh9F+wsjfECzxM3cQzxjjxSwoD1jaSceaIMKKxIeAvl36FxqYc5dCggciKGtDGEllBZKFiLRUDZQsVIyhrS9FAUUPFCjpKmvbhHqm7HuDC83+P35Bz5NJXlDp6+PqXD+Oir39ss0S75OYA97Gnl/DjS+8kaMkRRQblKSpdfXz+MweR+/CBvLIqoi2j8AeBm5aWjMLZOuluM3U20hexBEvh2HMizVIifQ+ZTSHTATITINM+MuW7x+kAmXK3KuUjUgFBJu0+W7jvTQtqNldCRon4uy1pKUgrQSa+xnTdtaWEpS0tWb4qIvPh/Tnp+A9Q6e5HeQodGYLmPD+5/G4embcYz1MuELKppPftACz+qS9wkvTVH/yZKAwRUiKloNxXYtrUcex9yjHM6zAMT0uCeJDSMZipmNyk6sAdSHzAF7GbFJ9WKayUWCUd+RI18mWlwiqvRsoSta68+P8UKSneRLAcgO5MSRtfi61ep5uQtf9LxROvLSVZ0GHY/ZRj2HO3cZT7Si6dqCQ6Mvz7D/+CNnFMfIN0qOXtYvW2FoC/XT2utUEpyR9nP8GDDz5PqiGLMQZjLA2B4LNf/QxP6hRNwuJLQSqRHFUDMCWdRKTqgA9i8pVRzidGKvC8quQK5QAUSqF8D+l7KM9D+e704lv3vIpf81G+R0okE2kgYNVTxGdyXfHjoO4ak9OX0ILlGRNw/NeOpzHtpNVoQ6oxy6OPPM+1tz7mUp8bJMUbLmKb3k2y1uVMyyEXXHI7Mh1grStYi3r6OeH4g+iatA1hf0TWF7VBk8Kp5TpA08o9lwxoohLTsT02sSQm/rBVEuF7GARhMSIqasJiSFSIiIohYTEkLIREBXdbKYboYkRXMRwgtZlBwKZF7XFQf7+OAKZi81KdiL7A9mnWTBzP8SccTNTTj1QSawwyHXDBJbdTLIXuuU207MXbNLbX4nmSP/1tLs8/s5RUSw5rDJVSyKQJw5n6iUN5dI2hJSXxhYhdoGRw6gCPw5IpQTWSFcQZnrSESMQhLc+S+CxSSkxkGLtVE/tMakfbJFtkHcO2DIhHCyDSmsaMTz5QBMK9T8dMObIQxvdlHOmSSdKpzt1KRMXELpaWjp03+YJXVxv2OOZD7HT3XJ57dTV+ysfPpnjxude4dtZjnHLMvoTauOKF9wLASkmiSPPTq+9FBAprjCNCpSLHHn8MS7JZcl0Rvqeqqi2RWh+DB/i25hIpHIZBPAE84aS4LHHZpCTAAUhPoYslDtxpFL//9w+9resOjSUylpQCbQWedZEriQM3OW1ch+VZQSAcwDpm2YEAI0UcJXNBwwZtWJrOcOxJH+H8c6+ETADGIAKPn11zHycdtfcmKxDw/pnAxVvZXs9T3P3IQubNW0zQkAFrqPSX2WXnrRk9cz+e6jG0BjK2XTU/V2FpaVDkPCetiZr0gKwHlSJIawjiydCfsGiFk2TiwIfnUdbxoGvtCuM3wHIp4UigjhWCtiCtQGKr0ms0tOQURjq3KMLdFrST9J4SmIJzs7S1GAkNgWRVl2HMftPYfZd7mPvcGwQZJ8VPP72E2x5YwEc/sMsmcZu8txu4eOvYh/uM397wsJulxFJWLnPE0QewPB2QKUV4QpGqs1cKS0tOcss1c3ju2VdI5TMI66oVleejdJnzzjiUce2NhKFxwCfF6xJQEiGcy+SyShIlBda62w0lMSKOlehqIAOEdEkHYywjcoqrbn2S2fcuQGUzRFGIsQKsodxXYK+DpzH94F1Y0aXxpcAYp7JzGF7zPA79+AzmnncViMBpdWO4/MZH+egHdtkkmSZv43IrVzT3+oou7njweWQuhbWWsKIZO66Nrfffi2d6Lc2ejGPBzv56GPJ5ybKFr3PZL29GGwcYInaBPAW9JVqb8lz6n0fQo92k8JJkg3QSbBFxLNp/h5PVouJFaSImuFZY8r5kZWc/5/3qTla/3gm+BzpyxtYaKJVZ8Pxr7DR1W7KZDKYMRjjJznqS1f2WXabvzoTxf2PRsm78wEPl0tz18HO8+sZqxo4ahjZmo66J2qj6IAmKzb5/AT2rugl8DyEFtlRi5oG70dPSgAzdzA6kwJcWT1iUgGZfcP01d6ONIT0sj9+YJWjK4Tdl8XMp/DFtXH3LE8x9YTlNgXJaOVHRnnORnA/sgaewQhIZZyuTs/pYGxeZqn9uwOnUuzEWgYt9Sxxh+vm1D7B6VQ/pkS34DWmCpjxBU5agMUt6RDOdS5fztz/PoaVBoqzBiwmirwRBpFnTkOHAA6dgi2WkEPi+oq+jh9n3L3BjuJETERsV4ETFzL7vWUeqYkYdpD0mH7gHK0qQ94VLFggXqFDW0tyoeO6xxcyZMx+vIUMYRmhriUwMhJVgLVFkOe/K+xxhrjG62AdWiDp/OJXy8aQg5Ss8JfGUxI9vPU/hx4+rz63j9OOVC1lfsuDVTi6/9SlUPkMY6jhvbFxywloibVCNeW676X6WLV5NQ1Y5TSVdqjHvCTqKsNMBe5DK+IRxOQ9KMeu+Z2MKIbdQFR2X4HT3Fnn4qVcg7YOFqByy0/jhZCaMJyxZmjyBJ3GZGeEC+GlrufbK24iiCF+ksDa2fjJR0wKNQDVmmf3AC9zx+GI+tOc2RMbGgAonxUJghIBshode6ebUKx4hsrWJJ0Rd+WRcE1aL+tjY9bHx2jSB1oZRjT7nfnwqSnmc//sH6O8r4jdm0GHkUg3C0WghFFaACnz6Vvdw49V38OVzPk1/EXzpGHZKCXrKlsy249hx4ijmLVyGlw0Q6YBH5r9CZ1c/rc0ubr2x7PFGA1gbgycV855/nRXL1+BnAjd65ZApu06kkE0RdGmUkLHaEihraG5UzL3nWR79x0K8xhzaUiVKVrjQno1DkjIOO5595f18aM/xjjxJ6XR1Eq5EINKSRZ1FFt2zOGZIdQTSDor1WDvweROXAAigGDJq6wa+96lpPPzsa1z/9+dRTXm00VgpETr2rRFYAyKOSnlNee697TE+cuT+jNphDB29Gk8IlBAExtCX8Zi6xyTmzV8C2QA/8OhY0cXcBUs5ZN8dXA34RgJYbkyCBfCPp1+BchgzWFfzMnHKRHqNixCpuOTGF+B5AlmMuPqqOyC219UCumQZClQT+loIVEOaJ55+jevmLKS1MYMWcS7Yc3FlPM8lG9IB/rA8XksOvyWP35LDb86525a8O5tz+M15d1Zfd49TTTm8lhzDGrNobTj7dw9itIvQWeHqv6yUGEQ8iZJJKZCeK9n54+/+FmsrUeUaaQWrKzB+lwkIT2CsdXMkjHhk/uIBc+7tl+1sQoATlTJ3wdLqmqFQaxoa0rROGEuhnAQpnD0SxtDSKHngtidY8PQreLkUOl5vhKgtO5HKc7ncpGoDgcikOfcP/2BZZx9BytldoWL767nYtFUekVBoIYmEJEISSeXuC+XuS0Wk3KmlREtJlJxCEhlozAX85ZFF3Dt3Kaox4zSMEI5jCEgFvgNZxupaOD/ab8rz2EPPMvfB52hqlEjrAPYFFMvQNH5rhjVniSJdtcNzFyx9B96q2HQAJ+6RMZbnF68E35WZ2lAzpr2Z1PDhmChOmEtQwhIEkmhNiT9cezciXlCGdOpYKYXtKXDq4VP4zmcPxPRXUL4CITFCIrMpFi7u4Ke3zqepuaGWNVIuXSh8r0a+vOTWsWt8z51JNil+3SoP6/nVxIVVCtIBqyPFd699BOHFUguuEiMyjG7Lcc05R6MwbuLFEpxUeiIV1/3udkxZ4yuBwnUkMJFFDmthzFbDsFFc++t7vLhklQsUbUSitVEluKu3wBsru9wA4tTOmDHDiTIppDGoOI6MsQxrENxx4wO8umg5XiblkvXCDZ7Rlmxzlm+cMIOvHTuN4aOa0BW3FtdNAonIZ/nNPS+wvKuISPkITyE9D+l5CKWQXnJ6g+57tft+/XP171MIJREpn+dfXsYzr3VDJuXMsxBOTRcrfPnoPTnmgO351MGTMXE6MAHalelkePnpRTx4x+M0NUmEcVLsGUMp8Bg1ZgSEDmDhSZZ19NDR1f+mVZPvOsDJtazs7GVNT6EWbtOa9q1aCRUEJDFdSzot6Xqtm+uvn4PIZ1y6LC5Cl0qie3v5+kkHsu3IZnIpj3NO3A9T1nEqUFZ932I5pFQoYqWHDg06srXTgDbC3drkVtadwr1uZe19euBpLYhSGRl4VYlUShKVQibtMIozj9yTijZ89/MzyTdl4qUqVFU1gEwH3HT1nfStLhIEEoVLc5YlbDW61X0RNQ9k5ered2CH3zGLtmvV9UltU+eafsJyiJ/yq+twh41oJoKYZEis1TRnPa791d/pXNWN39Lg7Fq8TDPqL7Hz1B3ZsWENXzr9dH75619z2qG78uvbn+P5JatR2QAdu05Sedj+PsaNaiLb0IIRcQonDlUmKlVISZAKCCPtVHmcf/U9jzAMXTLEWBeNMhZrDEHgsfjlZfSVK9VERmwssZWQCz67Hw2ZgFJk2W50C2d+cjr/c8ld+M1ZdBg5kI3By6RY/spybvvzfRz5xQ/Tt8oFP0ILTa3NIGxV7VdKESs6e9llu2RMxeYGWKyXwK3uKUBkEBlRXXGfb24iMnHUyRjSecUbC1cwa9YjyIasi37FhEVKiS2W+P7ph7Bq/mzuuvtuBJDyFReesA8fP/9WJ7048KSniPrL7Dc84Ooz96USmbq4sxsgt0zG8PJLLzFp+x2wxi0viSJNx6pVtI8c+aZonJSCpR197HHWC84mx5XTSkmi7n7223six+6/PR2dq5FS4jc38bVPTeeqv81jxaoepCddzw8h3Jrnhiy333gv0w6ZRrqthd5eTUVDtrkhdu3cakaiiDVdvf9chcXmiGT19JfA2NrKPQVBJuWyMvE153zBTb+/nf7eIiouVre4VkhRX4E995rAkXuPo1gxDBvWUs1QfWyfbfnAXuPRxcgRLunUrMxn+MOjr/PISx0EShBFIVK4slZpLZ6SFAsFfnPJJVgdIYVbCFbs7+OGG/6Mki5bpETiTguUFJx3w1OsXl3EC7za8hgLIlBc+Jm9kVJy3Z/+xF9uvBElBCOas/zn8fth+ssIKWKXz4GnfI/+NX3M/sNdBGkXZNEWgmzaAVzrCENfMdyY+G5cgMuVqJpEJ1aNKvDRxjHtTF6xZO5i7v37k6iGTLVURcRMXEj47y99BGstURRV47I29h1+eOJ0lO9hbdzhRoBUChMZzrr+CRCC3/72tyxbtsyBIgWPP/EES5Ys4dZZs+jq7kZIN6kKxSIPPPAAYRg5SbMuLi2l4MnFnfz+/pdRjemq66Z8hS6U+fiM7ZkxZVw1M5mYp2IY8cUj92D7nUYTFUOkFFhhQTrvwmvI8cgdj/LSU6+RzvlEGlQq5TyGOg1ZSVj1OwkpbnSSVRfNqkaB4qI7FQ+oEYLAWG68chZhpJFCVu20UgLdW+ATh07lg3tOwMaSh3BrmQQurztt4giOn7kdur+M8lz82SCRuYA5L3Rx0+NLuOby3/DE3Cerk+ZHF13EDy/6Id093Vx77bXceOONYC19ff08NW8ery19terqibjd0tk3Po02biGbjTvvmEiTbsxw4fH7OJsNKKlQcR46igy5tM+5p8zEJjbYxsEa4SQ6LFW485pZxPQAKWodekQ1OflOYhtvttsbBeDkI/04Hly1Z9a6QjMD2QaPF++fz+P/eA4vl3bSG1+gDiPyzRnO/+IhjklLiVIeOq6fVkrhxQXp5x27O/mmrONSUrpyWSER6TRfuuI+Fry4mIceuB+AJUuW8Ng/HmP2rbPIZXNccMH5XHLJJQghWNWxikWLF7PwhRdc3Nk4H/X2p5dx27w38BrTLq4tJdJTmELI6YdOZvvRLVTCqDopEi3kKUlfaDj2Azuzzx7bEPWWanzAWow2+PkMzz7yDM89/CxBDqIwxFhTaxQjeHuVHeKtOdJGVdHZdCrRWwljIaqEGAX0V7jl6tuwnkpaosQBHInpKXDGJ/dj+zGtLHxpES++9BJvvPE6lTDk5Zdf5oWFL9Dd3Y0xlm3aG/m3I3ZGFypIT1bdJikMK0wTux//Hzz9xKNoY3lq3lOsWLmc5pYWoijE8zxeWLiQnp4eVq1cSRRF3Hvvvbz00kuElTLawtl/ebaai7ZSVk1A21ZNnP2xqW7Jjax180n81aSMRyjBf51ysEuT2sH+jkPxrt/fSlSGKIxcSrK6ONySTW3cKiq50YqggZbGTDVNKOKARrGvRK4Rnp39IM8/sxg/k6rmWZWEqFRhzLYj+NqJM1m2pptPHfMx9t9vP6684koKhX4++MGDmbr7VP785z/jxbVe/3HoTowa3YyuGBdciKNHAliz7QdZ1VvkmflP8cyzz9DQ0IjWEaViiTGjxzB6zBhuv/12Ojo6yWaz/OlPf+KLp56KKffzpyeWMfeFDryYGCaumymFnHX0FIY3ZhzLFlUbVA3RGlwD09UlzUF7T+CIgyYT9RZrUiwE1hj8bIrlC17m6TvnOWGIba41BpSkuSH3TiDYQIDfDoWztqqVhzVlXMlqzKSx0Fsoku6JuOO6OxHpIPZBbTI62GKJs085hLaGFCqd44o/Xs+c++7nsMMPx2jDZZdfwcMPP8wnPvGJatuHllyKcz46GVuOnL8bR7dQlnkriizO78jN11/Lk0/N5zOf+Qy+H9Da1sboMaM57rjjuPnmm1m69FWKhQLjxo1j9uzZyNwwzr5pPiKbRNVcnw5djpg4oY0zPrhjXG1RGyCRJBkgzgk7ge3R8J8nH0Qq41WL26vOm7GIIMWzN9zGioWLXKlRbM5E4DO8tWFAbP/dZ9Gi1rNxxLBG8vl0bSCMRYYhL/1lDstfXUmQ8rFx1YeUgqivyJ57bMuxh+/JypJBCZi64yTSDY089OCDrFixgvlPPcWUKVPI5/PViI82llNmTGDnSSPQ5SSEGZfQmoiO7Q/nt9ffSteqFRx3/PFsPWYMH/7wh8jlcnz6059mwYIF3HHHHXzpjC+x2+67k0mn+em9i1mysoRK+9VIlJACqw0XHLMbmcCrluXKuC+IFMKBjKsscZNM0V3UbL/DSD5z5DR0T9Examp1tirls3LpCv50w4OobAYbV5LkcwHtw/JbbkXHiNY8I1rymEg7VprL8ND9z/CXP96NzLsfUk0DGoPE8M3Tj6DiScqhAV+xpq/Amad+gTfeeIPhI0bws5/9jL/fc4+rd06K+Kwl8BQXfmwyVluESNYIKwQa2TaWpW3T2GniOKZM2ZVJkyax7777seOOO9Ha2kp7ezuvv/4a3z7nv/jSaaexrKfEj+9biswFLhqmkpBkxD6TR/LJaePQ2hBWypRLJfoLBUqlEp1r1tDV3UUpfq5YLlMolTEWOkqWL510MMOGNxCVyghrapIfq/SeYiVulgom1IwYlmdEIsFyC0r4i3g1Xyrw2WZMKy+/tAybcdUNTy58PfaHPUz8Az0pKXf3cuTh09h9n+3o6NXkPIENK3z5S6cze9Ys2tvbscawYtUqjv34x5k1ezb77LMPJl4So43lqN1GM3PXrbjnuU68fAodByREWEBMPpwDjh2F7yl2nrwL0/edzqRJk7DWMnPmTAqFfrYaOZKtRo7kyzc+x5qeCn7WJ6qEVZuOhO9/bApSCp5d8Dw/uuiHpFIpWlpaMNawcsVKPM/ju+edR2+hQKFYpFIJOfkb5zB8m23Jb9XIKZ+YzkU/uwW/tSGuArHVimkl4+L72BZvO7qNVOBv1MK7jVfRoR3h2W37Mdx11/xqeUzg+44xxxUTAsceG5pznPqFI1hZsvjGgufxysrVoBQnn3wyixcvYsmrr/Lp44+nv6+XRYsWsc/06VVV59ir4AdH78z0Fx+oxpxdKNNgm4ZzU087nwQOP+Jwth6zNaNHjUYIwYwZM1ixYiXWWhYs6+WyJ1ahcgHausCEEhD1lDlm+nhm7jiSSBu23247Lr74YsIo4je/voSOzg4mTJxIpDVdXV2M33YCR5x4MmFksaks5Yqls2Q56tgZ/Hn2E7zy+moCX1aXuLqVq7aW/40MkyeNqoVL1RYGcGKH95oyzq3Ojt0DY2vNwKwFqQThmj4+c9phDNuunZ6uiKZAUigbGluH8+Mrr2Ak8JNf/IrfX/5bLr/ssup3VIzFiwMLSrr2CHuNb+G4fcZwzcNv4DcFREJgpERlJX98/DXO2HM4B2yzDZE21b0Zdt55Z07+fANCCL475zVKocFPeURh5IIbkSWdC/jeR3eO1wKI6uI1Y2H6AQewpquLYqlMURuCdJoR7e1kcg3oCMraEhkIQ43XlOH0kw7mm+deDX6mriFqHZe1Luq29y7jN3pd9EazwUk7gmmTx5JpzhFGhoQ7Jv6iFBCWQsaNa+OwTx/Cq10WjaRioGKhog2da0p0aE2hXMFXih6jWV0K6a1EcWPwum5X8aS54NDtyeYDF/OOa7OElOAHnPPAito+DPE/ZLI5Ju+8Ew8t6eaGZzqc9MZFfsqT6FLEqTO2ZYeRDVXCqI0l1IZSGHHAvtNJ+T5z7rmbf9x3L8OHt7PHXnvQW4oII0NoLGVjMVKyrMuw+yF7svuu8RJSIWpORNynOow0maYMe+0ybsBYbnEJf2ss40YNY8p2o9ClkIHXGcdlS2VO+OyhdDXmKJQ1JSsoGkHZuF4XkVDoOERorEULhRUKi0Rbi8btpJJswKGNYZu2LGfOGIcpaWT8v1pIvFzAfYv7uGnhmthuJ7V1LiX47fuWYaXvJkNc1KcjQ1tbhm8fMjHuIxIvKIsTBFZKOksRu+8/g7O+/yO+duFFjNt5Cq/1aLRUVCyUNdXfE0aG5cLjpJMPQ1pNEl2POyYihUSXKuyy3SjGj26NBWEDAN6AhPEGLAC3b8tBjuJyzw/tuz1UwrqZ6FoAV/pL7LHbeCZ9aF/e6DJoISnFs71ooGSgYqAAhLGfXDYudxpSa1KWtDpKFgwaa/nmzG0Y2ZZBR65TnkvDSYSCcx9eSUU7DRLFLYtvebGbexf14sXSa+McsgkN3/rgREY0xDViiOp3RhZCA1pIKiiMF2BVilB4RLhWDuVEGxkoWzfRVnVrRuy9M4fMmELYW6iamaq0hhEf3n8nhHBmZ0Pd0w0JVcu3F+xc/4cmM+/Imbsgsyki7dwakXS3s5qPnXwUr6DAWErxLC/bmgQXtaWCi9OWiwUikl4Y7oyMa4qi4z5X4OLIrVmfbx80DlNxHWCFlBghUGmfBSsrXLlgTbWDe6QN//XgCldnhfNlpZToSsSkrRs5Y9+tY3AdqFHcpyO0deAZqGhLxZj4tia1NZAtZeuo1KISHHbiR8imPSJdK9WNtEFmAo78wOR4DLdQG5zMRmMtu++0NVMnb01YKLv8q5KEff0cdtg05NSdWd1tCKmBWtZxMxPjmpgUDWRbR7DtjjvHttkNar0k14OshGOeX5g2ih3GNhJWbE2KhUD6kgse66SrbPCU5HcLupi/zAU1dNxfSUhXJHj+wduQ9iQVY9GIGFzrvtu4M7mWylrO0ArK1k3Kskk0kKS7V9M3cTxHHb0/UX8RqYSLVBbK7D55LFN32tqV0G7klQ0bfVFq4i6dcMQ0qES1kJvWbDWmnVXxrC3WS6+FkrWUrbPBXV2GGcccz7cvvZa+oiGiJkHJICcgRxYMAm0taV9xwcyxEEVEWmPjfY+sJ3mts8z/PdVJX0VzzoMrIKWIjMEajTGGqL/EjB3b+OSUEZS0xSLi77LV7wytiM86iTZ1El29dcCW6s5IW7oNtIxocgvWEt5SDjnh8D1RUr65QdpGyPpv9DZKjiRIVnT2stOR36O7p4DnSSqVkPEjGvniL85hocwxQhoySpJTlrzn+k5m4/YJSTuHQIKPra4f9utaKfnx+iZP4toKOk8DCcxb0e+Wf8raljrWQjaQjM37PNNRcp3bjUXEnW+jSDNuWIZhWZ+Kdt52VG9762xwIr3hAHWcqGdBKeYUhXjdcFFDhxFMsAUuOeP7vLKymyDwicKI5qYsz/71HNpbGzb6ysKN6gfXs+lIa9rbGjjpqL356a/+hj8sh58OWLxkFYtuuYu2E4+ma7VFpN2iaqVrDcUktQZjCUsQNm6ZYAZSQ4urk7Nx4ZqKQwe7b7WeeK417DMqt/aKFIOT3rghadIXK7K2qjUSyS3Xq+p6+2sH2uKyhZ7Q0NLi8fIf7mXxq6sImvMIQPeXOOGEGbS3NmyynlmbpG9AsvfQv50wg3xrA1HoqhVVQ46/3jiHkctXUkx5lCNDSVMjW0ZQqicyg0lN3eNK3WAn0uVUtqUYGUqRoRwZKtoQxmdkjGtkpt3rhdDQFxq6Q0NXxVCIDJG1te+IGX7V7akjg/UqOTmdOq41RSsaKEWWku/RtmwVf73ubmQujTCGKIzID8vzbyfOrFaTvAOPaPMCLKVbmTd+dCtf+OT+RD0FpHTLNleuKXLPpTcwKQcdoQOqps4sJSMoWhzQpgZ+qc6NSgZ3wGlrttkm26lU15uJuC+0qPaGtgiMiPtE45qu1H/WABCTSRa7QaUB0iooGfcbikY4lRzfrxjoDGF8DuZcfiMrOvvxPeWqOnsKfOGT+7PN6Na37Fv5TrT2Jut0lzDqs075IMPHtBGWQ6yxBI0ZZt/5BKU772NEq6Kr5KS4aKAQA13SglIizXXAJuAmKrI0SE3WpNrWETFRDVJoW29X43CidURqXcBWSZMVNUI4QGrdpHQgJ/68e193xdDaqijc/SCzb3uMoDGHNZawHNE2ehhnnXJIzJw3XcPKTQawiFvrt7c1ct5XDkf3lVwAXRtULselF/+FsUtfI8x4FELjJFc7P9id8UDVDXxl8P06EOpdmHqJDmOVO1idD1D3VRMgaiDbwaqXGERRfX9JizqQoayFm6waCqGhnPYYtfQNLr/4RmQ2izUud637inz3zMNpb2t02wBsoo6kgk3cq1LFW8+c9sn9mPGByZS6+quqelVfid9973L2lAW6pKIcGcrWSUJVXceSnQA6WF0PUJfJ/UE2fKCttITxd1TWYkPLxr7pu5zEOltcMrbu++tUsya+VkvRCEqRYTWS3USRq793GSu6i3i+h5SSUlc/+x+wE6d/6gC03nTNSAVvs5XhO1PXkt989zgamnJuWYcxpHIp5j3/OrN/cAVTGy2r4oFJ3IqCgT5tKSR2LQarWC9RdSq8uI4JMNhmlmI7WpXSurNmS+skVrvXEtVbrJt0CXdIJLsYd55dZQRTmyx3XnQlTy54jVQu5do4hpqGpgyXnnf8Ju8yazeKit4AeifjZSKTtmnn4u8cR9hXcvY5MqSa89x29zye/NlVTBkmWREJStpSMLXeU4XIVm3zgIE3awHE1nzPAf9TR3wGTBBdI0n1k6I46DtKut7eWspGUDDxdRpBv4b+2MVaGcHkVsncn1/NrDvmkmrOORIlIOzt5+ffOY4dth1Zbam8yUzkRvGD38p2xI3VlJKEkeako/bisWde4eJL7iAzooko0qRaGvnDDQ/iBx67nXkCczsN7dZiPVFNKCTVpwkD1sJduLYQxl1nQwFetXG3m7lJ4KPWwaFu65zYrU5CnqGJyVddgGOg7yuqqj+0sRbQDmznDhk6jGBKq2ThL6/lD9fdT6q5AR3Fe0Ct6uLMUz/MZ4/ae7NsfWc3VSRrfRGu5Js++qVfc9ud88i05oni7E95TQ/HHbMfu/6/k3iyR9JsI3K+rLU6VPUdZ11LBD9eb1x/qrozAblun7O6jaHjyWIHBjR03f2BiQZRI3naxaYTElgMDatR7Npkee6XV3PtH+cQtDRgIoPnS0qdvXzog1OYdcmZQNx/azNtr7NZ9y5MVu719pc56LM/5Yl5i8m05IhCg/QU5a5eDjtoCjO/8TmeEnmCYkRTyjVtyaqB+zdU2/vHrQ6rwBIv9B8AcKK2kpJ7qtEqQ7wvQyy9CcChsUSIGGgxgJ3X2Lylp2wI0x67yiL3/+gKbr3jyYGS293H1Cnj+fvvvkZTQ7o6Bpvr2OybUyZbyK7o6OHDp1zMU8++SqY552ySpyh39bPb9qM47lufZenYcXR2aVo9SHtiQHv/oK4DrZc0uIuB9uri0slYykHqqx7g+g2xNMIlGOrizgNj0HE0Sxu6IkFzs2TcG0u56QdX8Y/5rxI05zAJuGt62XmnMdz1u68xsq0RrTet3d1AgDfOwuP1g2xQSrGio5fDTv0Fc+ctJjMsH2+ZrigXyrRlPU487Ujyhx7EK0UIShF5XxAoUe1vGciBqjlJPniJ/R0gvYOuIV47nOxyFtUHQYDQiIFpQiuoxJmlvshS9BUTchDdfR9XXXwTK3pKpPJpdKKWV/ex6y5jmXXplxnd3uJcIik3+/6F79r2sklX2tXd/Rz7lUu5574FzibH6caK1tj+Ih+euSv7fO5oVm09mt4+yOqIrC8HZJdUHcDJ4yrBGhi1rJKsJHeRSHCy01mUqGpTI1ZhHPUqhoZe4dHSCCOXL+fRy27gtr/Ph0yGwJMY7chTqbOH/ffbkRt/cTrDW/LviuS+JcAmXhG3Xra8rvbD1b14615fy3uNMfhKUaxEnHbutVzzx/sRzTm8eKsyoSSVngLDGzMc+okPMOIjM+luasAUIYNrK+z2L7JV9Zy0KlonwHEiZG37Fmrqc81OJWsEoYY+Kwjy0NRbYOWsu/j7DXNY3lV0W8waE69p1tDVz6c+sS+Xfu9EcpmAMIziPYY3GXt1qy3WYdfXCfC7sVPmlTc+zLf+92Y6e8sISXXX70pksP39bDtuBPscNZOm/fdiTZBDGGj0HLNOwPQG2eBquE4MdB/q9y40iNgO2+pWOhrn9/ZEAist7brEynsfZN4t9/PSkpWQSRP4Kg41ujVHw7I+P/j6xzj5mH03+9itqyvPmwBOSNDDTy5i1t1PkcoEmGR/obVY6/pgh4jXKdm6PpDJF79VOsxYS0tjhrseeYHbH1yI8pRbCWGThmiSSqixnd0cedQ0zrvoDP76uuaFkqA/ch3ksp7blkfFLRmq/Z4HXHrSQc+5ba6ftQM5iiNd/XEcPCMt26UNx4z1uOvqO/jGt3+PaB+GH/gQbxnrikUFuhJxyH478KHp27tdwut2vK1uZ/tWKdbkypIuCfV7I6+FGikpKRfLHLTvDszcZ4cBWankN3trU80KmPP4S1x44fXQ2ugM0lrjJPbNEa26bdJJ0nZ2UGBkbao9iWTk0/ipeFLV/TgdGdK+opTP0F0I2S0Lu00ULC0J/tEDT/RYXilZVlWcxAbxNnhB3INDiLgdv3DlOPXZpcgKynFlR17BtlnB1Dzs3SQY57qVc2sUIfI5simfcqjjFYOiip1Medz2wPPcdtuT8W+zdb9ZDBwPeHPPzLeMSdk3B5k8CR29lL/1cWbuswPGGKRUA969zkhWJh3gtTaSasm7WiHBOvjoWuIntv6tYi1T0K7zs4yxA8GtnzfGYuN9Aw1uJerWGXce0y5YXoaXCrCoCK+UYFVF0Bu5FF5UV4UprMWLNwEZ5guG+zA2LZiYgYlZGJmqfW8lcoMk4vW9xti1D4GBIOUj037dLx0odpbBW8vWxstiB32sWL9vE3cDKFlLNuOvlSuJ9QFsjCGKNJ42rlZXvElE10Kq1j4BRd0PrK7dWOuEsev9cVUVFttVtxlGUgTvgBmZgv1bYqZuoE+7WHGSdgQX2kxJyHuQl3VtsOqUSdJItmrDjam1IE46EmPrVm+4ciD9pmHYECm16xy72m7l8eSsU4JY1xtkXY6QfVux6PVt2CHWRaPrrl0M+rG27o5Yr1Cve9NkW9uaMAk/JuRJxIy6yXfn+sbWxKeoY91vWvslxMBfl2gZYWsTd8Bfsdapu1ZgxfrHPVnIZ9cx5OvjN+sEWEmJ53l4nlxHcmHQrFsfCrEYC3jTzp8MHopkwdFaLlpJiVZqnZtsiEGXaBnYDrqeHtR1YVg7oIMGUgrhxmOdLs9ba6INMmnr/Nc3f2/SvV6sRyjWCXChFBKt7qXPLQX45yT7LX+bfbM6Gvzr6n+0ktBboKu3tGHjV6dCxdq+ZgOT5m48KkSdPfQJUWtkud7/EBvAm+wGjuEgsppMV1/B6j4KpXCd2SRvbflbrOUj++9I7n9Pxou3pVtnFLNeG6+nOjB5reaviToisr7UY42BCgFRqNl61LCaK7FBDPSfT7klbseRB+3KiOYGvJRf66wziEzZQUR53XIwSJ29Vcpd1BIl1bGLM1JhqcLeU7eN57/YsgMdG8Ox32Qhv/foeKxTRbudMu0GqcF3JCl1DLE6o9dC9+0gvqM2c2xX63W4SBtrG+938Dky7gi0RSUbho7Nc8h3bqmGji0e4C1FhIcm2iYCeIshCv+CAGxKsii2NID/FY9Nyc7tEMBDKnroGAJ46NiS7fgQwO9zOz4E8MYToyEV/T4XoyGAh44hgIeOIYCHjiGA3z5Dev9RgiGA1zYc7x+CbYcA3nxoiHdRQwwBvDncnXfRhZLvBWd96NhYAIuhlPu/FIveJHAPKYnNevx/8WG6glFZTsAAAAAASUVORK5CYII=";
+const sb=window.supabase.createClient(
+  "https://doxahmqcnjpjbvquuzrx.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRveGFobXFjbmpwamJ2cXV1enJ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwMTYwOTUsImV4cCI6MjA5ODU5MjA5NX0.0ex2tu6e5ajf22r_F_uh81ySYaIMm1Y5Bk95t9CK5eU"
+);
+const C={marino:"#1B3A6B",cielo:"#4A90D9",amarillo:"#FFF3B0",blanco:"#FFFFFF",gris:"#F4F6F9",texto:"#4A5568",exito:"#27AE60",error:"#E74C3C",borde:"#D1D5DB"};
+const USUARIOS=[
+  {id:1,nombre:"Andrea Medélez Rivera",usuario:"andrea",pin:"Andy1209.",rol:"admin"},
+  {id:2,nombre:"José Guillermo Navarro Palomar",usuario:"guillermo",pin:"5678",rol:"supervisor"},
+  {id:3,nombre:"Airy García",usuario:"airy",pin:"1111",rol:"ingeniero"},
+  {id:4,nombre:"Eduardo Durán Oropeza",usuario:"eduardo",pin:"2222",rol:"ingeniero"},
+];
+const EQUIPOS={
+  "Rayos X Fijo":["Consola de Control","Gabinete / Generador de Alta Tensión","Tubo de Rayos X","Colimador","Columna Porta-Tubo","Mesa Radiológica + Bucky de Mesa","Bucky de Pared (Estativo)","Sistema de Imagen DR/CR","Pruebas de Funcionamiento Final"],
+  "Rayos X Móvil / Portátil":["Consola de Control","Gabinete / Generador de Alta Tensión","Tubo de Rayos X","Colimador","Sistema de Movilidad","Sistema de Imagen DR/CR","Batería / Sistema de Energía","Pruebas de Funcionamiento Final"],
+  "Rayos X Fluoroscópico":["Consola de Control","Gabinete / Generador de Alta Tensión","Tubo de Rayos X","Colimador","Mesa Basculante","Sistema de Fluoroscopía","Sistema de Imagen","Pruebas de Funcionamiento Final"],
+  "Arco en C":["Panel de Control","Generador de Alta Tensión","Tubo de Rayos X","Colimador","Brazo en C","Intensificador de Imagen / Detector Plano","Estación de Trabajo y Monitores","Carro / Base Móvil","Sistema de Enfriamiento","Pruebas de Funcionamiento Final"],
+  "Ultrasonido":["Consola / Unidad Principal","Monitor / Pantalla","Transductores","Sistema de Energía / Batería","Puertos y Conectores","Sistema de Impresión","Pruebas de Funcionamiento Final"],
+  "Tomógrafo CT":["Gantry","Tubo de Rayos X","Generador de Alta Tensión","Sistema de Detectores","Mesa / Camilla","Sistema de Enfriamiento","Consola de Operación","Estación de Reconstrucción","Pruebas de Funcionamiento Final"],
+  "Mamógrafo":["Generador de Alta Tensión","Tubo de Rayos X","Colimador","Compresor / Paleta de Compresión","Brazo en C","Detector Digital","Consola de Control","Sistema de Imagen","Pruebas de Funcionamiento Final"],
+  "Digitalizador CR/DR":["Unidad Principal / Mecanismo de Transporte","Sistema Óptico / Láser","Tarjetas Electrónicas","Software / Interfaz","Pruebas de Funcionamiento Final"],
+  "Densitómetro DEXA":["Generador de Rayos X","Brazo / Arco de Escaneo","Mesa del Paciente","Sistema de Detectores","Consola y Software","Pruebas de Funcionamiento Final"],
+  "Resonancia Magnética (MRI)":["Imán Principal y Sistema de Enfriamiento","Bobinas de Gradiente","Bobinas de Radiofrecuencia","Mesa del Paciente","Sistema de Control","Sala de Equipo","Consola de Operación","Pruebas de Funcionamiento Final"],
+};
+const ITEMS={
+  "Consola de Control":["Limpieza externa de consola","Revisión de pantalla/display","Revisión de teclado y perillas","Prueba de selección de kV","Prueba de selección de mA","Verificación de temporizador de exposición","Revisión de cable disparador","Verificación de indicadores luminosos","Verificación de versión de software"],
+  "Gabinete / Generador de Alta Tensión":["Revisión visual del gabinete","Limpieza interna (tarjetas, conectores, ventiladores)","Revisión de tarjetas electrónicas (quemaduras, capacitores, soldaduras frías)","Revisión de microcontroladores y circuitos de control","Verificación de circuito de disparo","Revisión de fusibles internos","Comprobación de niveles de kV reales vs. seleccionados","Revisión de terminales de alta tensión","Revisión/cambio de silicona aislante en terminales","Verificación de transformador de alta tensión","Revisión de rectificadores","Comprobación de circuitos de protección eléctrica","Revisión de transformador de filamento","Revisión de cables de alta tensión (fugas, grietas, resistencia)","Verificación de nivel de aceite dieléctrico","Revisión de fusibles y breakers principales","Verificación de conexión a tierra física"],
+  "Tubo de Rayos X":["Inspección visual del tubo y coraza","Verificación de filamento fino","Verificación de filamento grueso","Verificación de bananas de alta tensión (ánodo y cátodo)","Revisión de cables de alta tensión en conexión al tubo","Verificación de temperatura de operación","Procedimiento de calentamiento del tubo (seasoning)","Revisión del sistema de refrigeración","Verificación de nivel de aceite dieléctrico del tubo","Prueba de disparos a baja potencia","Prueba de disparos a media potencia","Prueba de disparos a alta potencia","Verificación de valores reales de kV y mAs en exposición"],
+  "Colimador":["Limpieza externa del colimador","Limpieza interna del colimador","Alineación del haz de luz con haz de rayos X","Verificación/cambio de lámparas del campo luminoso","Revisión de persianas/láminas de colimación","Verificación de mecanismo de apertura y cierre","Prueba de centrado del haz","Revisión de filtros adicionales de aluminio","Verificación de indicador de distancia foco-detector (SID)"],
+  "Columna Porta-Tubo":["Limpieza general de la columna","Lubricación de rieles y partes móviles","Revisión y ajuste de frenos electromagnéticos","Verificación de movimientos verticales","Verificación de movimientos horizontales","Revisión de cables de contrapeso o resortes","Verificación de topes de seguridad","Revisión de conectores eléctricos"],
+  "Mesa Radiológica + Bucky de Mesa":["Limpieza de superficie y estructura","Lubricación de mecanismos de movimiento","Revisión de frenos electromagnéticos de mesa","Verificación de movimientos longitudinales","Verificación de movimientos laterales","Revisión de topes de seguridad","Verificación de bandeja portacasete / detector","Revisión de rejilla antidifusora","Verificación de mecanismo de bucky","Revisión de conectores del bucky a consola"],
+  "Bucky de Pared (Estativo)":["Limpieza general","Lubricación de mecanismos","Revisión de frenos electromagnéticos","Verificación de movimiento vertical libre y sin ruido","Revisión de bandeja portacasete / detector","Verificación de rejilla antidifusora","Revisión de conectores eléctricos","Verificación de topes de seguridad"],
+  "Sistema de Imagen DR/CR":["Limpieza del detector o flat panel","Revisión de interfaz detector-consola","Verificación de comunicación con workstation","Prueba de calibración del detector","Verificación de uniformidad de imagen","Revisión de artefactos en imagen de prueba","Verificación de resolución espacial","Actualización de software de adquisición si aplica"],
+  "Pruebas de Funcionamiento Final":["Prueba de exposición completa con fantoma","Verificación de calidad de imagen diagnóstica","Prueba de repetibilidad de exposición","Verificación de todos los movimientos mecánicos","Comprobación de indicadores de radiación","Prueba de dispositivos de seguridad y paro de emergencia","Limpieza general final del equipo","Registro de lecturas finales de kV","Registro de lecturas finales de mA","Registro de lecturas finales de tiempo de exposición"],
+};
+function getItems(s){return ITEMS[s]||[`Revisión general de ${s}`,`Limpieza de ${s}`,`Verificación de conectores de ${s}`,`Prueba de funcionamiento de ${s}`];}
+function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"});}
+function nombreU(id){return USUARIOS.find(u=>u.id===id)?.nombre||"No especificado";}
+async function sigFolio(){
+  const {data}=await sb.from("ordenes").select("folio").order("id",{ascending:false}).limit(1);
+  const u=data&&data.length>0?parseInt(data[0].folio)||0:0;
+  return String(u+1).padStart(3,"0");
+}
+
+function Btn({ch,onClick,color=C.marino,out,sm,dis,full}){
+  return <button onClick={onClick} disabled={dis} style={{background:out?"transparent":color,color:out?color:"#fff",border:`2px solid ${color}`,borderRadius:8,padding:sm?"6px 14px":"10px 22px",fontSize:sm?13:15,fontWeight:700,cursor:dis?"not-allowed":"pointer",opacity:dis?0.5:1,margin:4,width:full?"calc(100% - 8px)":"auto"}}>{ch}</button>;
+}
+function Inp({lbl,val,set,type="text",req,ph,num}){
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>{lbl}{req&&<span style={{color:C.error}}> *</span>}</div>
+      <input type={type} value={val} onChange={e=>set(num?e.target.value.replace(/\D/g,""):e.target.value)} placeholder={ph} inputMode={num?"numeric":undefined} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,outline:"none"}}/>
+    </div>
+  );
+}
+function Sel({lbl,val,set,opts,req}){
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>{lbl}{req&&<span style={{color:C.error}}> *</span>}</div>
+      <select value={val} onChange={e=>set(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff",outline:"none"}}>
+        <option value="">-- Seleccionar --</option>
+        {opts.map(o=><option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+function TA({lbl,val,set,ph,req}){
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>{lbl}{req&&<span style={{color:C.error}}> *</span>}</div>
+      <textarea value={val} onChange={e=>set(e.target.value)} placeholder={ph} rows={4} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,resize:"vertical",outline:"none"}}/>
+    </div>
+  );
+}
+function Card({children,style}){
+  return <div style={{background:C.blanco,borderRadius:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",padding:20,marginBottom:16,...style}}>{children}</div>;
+}
+function Badge({tipo}){
+  const m={borrador:{bg:"#FFF3B0",col:"#7D6608",lb:"Borrador"},en_proceso:{bg:"#D6EAF8",col:"#1B4F72",lb:"En Proceso"},completada:{bg:"#D5F5E3",col:"#1E8449",lb:"Completada"}};
+  const s=m[tipo]||{bg:"#eee",col:"#333",lb:tipo};
+  return <span style={{background:s.bg,color:s.col,borderRadius:12,padding:"2px 10px",fontSize:12,fontWeight:700}}>{s.lb}</span>;
+}
+
+function Login({onLogin}){
+  const [u,setU]=useState("");
+  const [p,setP]=useState("");
+  const [err,setErr]=useState("");
+  function go(){
+    const f=USUARIOS.find(x=>x.usuario===u.trim()&&x.pin===p.trim());
+    if(f) onLogin(f);
+    else setErr("Usuario o PIN incorrecto");
+  }
+  return (
+    <div style={{minHeight:"100vh",background:`linear-gradient(135deg,${C.marino},${C.cielo})`,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:360,boxShadow:"0 8px 32px rgba(0,0,0,0.18)"}}>
+        <div style={{textAlign:"center",marginBottom:24}}>
+          <img src={LOGO_DATA} style={{width:100,height:100,objectFit:"contain",display:"block",margin:"0 auto",borderRadius:"50%"}}/>
+          <div style={{color:C.marino,fontWeight:800,fontSize:17,marginTop:12}}>ELECTROMÉDICA DEL BAJÍO</div>
+          <div style={{color:C.texto,fontSize:13}}>Sistema de Gestión de Servicios</div>
+        </div>
+        <Inp lbl="Usuario" val={u} set={setU} ph="ej. andrea"/>
+        <Inp lbl="PIN" val={p} set={setP} type="password" ph="••••"/>
+        {err&&<div style={{color:C.error,fontSize:13,marginBottom:8}}>{err}</div>}
+        <Btn ch="Ingresar" onClick={go} full/>
+      </div>
+    </div>
+  );
+}
+
+function Header({titulo,usuario,onLogout}){
+  return (
+    <div style={{background:C.marino,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <img src={LOGO_DATA} style={{width:36,height:36,objectFit:"cover",borderRadius:"50%",border:"2px solid rgba(255,255,255,0.3)"}}/>
+        <div>
+          <div style={{color:"#fff",fontWeight:800,fontSize:14}}>{titulo}</div>
+          <div style={{color:"rgba(255,255,255,0.65)",fontSize:11}}>{usuario.nombre.split(" ")[0]} · {usuario.rol==="admin"?"Admin":usuario.rol==="supervisor"?"Supervisor":"Ing."}</div>
+        </div>
+      </div>
+      <span onClick={onLogout} style={{color:C.amarillo,fontSize:13,cursor:"pointer",fontWeight:700}}>Salir ⬅</span>
+    </div>
+  );
+}
+
+function Nav({vista,setVista,notifs}){
+  const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"nueva_orden",ico:"➕",lbl:"Nueva"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"config",ico:"⚙️",lbl:"Config"}];
+  return (
+    <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.marino,display:"flex",zIndex:200,borderTop:`2px solid ${C.cielo}`}}>
+      {items.map(it=>(
+        <div key={it.id} onClick={()=>setVista(it.id)} style={{flex:1,padding:"10px 4px",textAlign:"center",cursor:"pointer",borderTop:vista===it.id?`3px solid ${C.amarillo}`:"3px solid transparent"}}>
+          <div style={{fontSize:20}}>{it.ico}</div>
+          <div style={{fontSize:10,color:vista===it.id?C.amarillo:"rgba(255,255,255,0.7)",fontWeight:vista===it.id?700:400}}>
+            {it.lbl}{it.id==="dashboard"&&notifs>0&&<span style={{background:C.error,color:"#fff",borderRadius:10,padding:"0 4px",fontSize:9,marginLeft:2}}>{notifs}</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+function NotifPanel({notifs,usuario,recargarNotifs}){
+  const [confirm,setConfirm]=useState(null); // {id, folio, accion}
+
+  async function ejecutar(){
+    const {id,folio,accion,solicitante,uidSol}=confirm;
+    const aprobada=accion==="aprobar";
+    await sb.from("solicitudes_edicion").update({estado:aprobada?"aprobada":"rechazada"}).eq("orden_folio",folio).eq("estado","pendiente");
+    await sb.from("notificaciones").insert({
+      mensaje:aprobada?`✅ Tu solicitud para editar Orden #${folio} fue APROBADA`:`❌ Tu solicitud para editar Orden #${folio} fue RECHAZADA`,
+      para_usuario_id:uidSol,
+      para_rol:"ingeniero"
+    });
+    await sb.from("notificaciones").update({leida:true,leida_historial:true}).eq("id",id);
+    setConfirm(null);
+    recargarNotifs();
+  }
+
+  async function marcarLeida(id){
+    await sb.from("notificaciones").update({leida:true,leida_historial:true}).eq("id",id);
+    recargarNotifs();
+  }
+
+  return (
+    <div style={{background:C.amarillo,borderRadius:12,padding:16,marginBottom:16,border:`1px solid #F0CA00`}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontWeight:700,color:"#7D6608"}}>🔔 Notificaciones ({notifs.length})</div>
+        <button onClick={async()=>{
+          await sb.from("notificaciones").update({leida:true,leida_historial:true}).eq("leida",false);
+          recargarNotifs();
+        }} style={{fontSize:12,cursor:"pointer",color:"#fff",fontWeight:700,background:"#7D6608",border:"none",borderRadius:8,padding:"4px 10px"}}>✓ Todas leídas</button>
+      </div>
+
+      {confirm&&(
+        <div style={{background:"#fff",border:`2px solid ${confirm.accion==="aprobar"?C.exito:C.error}`,borderRadius:10,padding:14,marginBottom:12}}>
+          <div style={{fontWeight:700,color:confirm.accion==="aprobar"?C.exito:C.error,marginBottom:8}}>
+            {confirm.accion==="aprobar"?"✅ ¿Aprobar esta solicitud?":"❌ ¿Rechazar esta solicitud?"}
+          </div>
+          <div style={{fontSize:13,color:C.texto,marginBottom:12}}>Orden #{confirm.folio} — {confirm.solicitante}</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={ejecutar} style={{fontSize:13,cursor:"pointer",color:"#fff",background:confirm.accion==="aprobar"?C.exito:C.error,border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700}}>Confirmar</button>
+            <button onClick={()=>setConfirm(null)} style={{fontSize:13,cursor:"pointer",color:C.texto,background:"#eee",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {notifs.map((n,i)=>{
+        const partes=n.mensaje.split("|");
+        const esSolicitud=partes[0]==="🔔 SOLICITUD" && partes.length>=4;
+        const folio=esSolicitud?partes[1]:"";
+        const uidSol=esSolicitud?parseInt(partes[2]):null;
+        const textoMostrar=esSolicitud?partes[3]:n.mensaje;
+        return (
+          <div key={i} style={{fontSize:13,color:"#5D4E00",padding:"10px 0",borderBottom:"1px solid rgba(0,0,0,0.08)"}}>
+            <div style={{marginBottom:8}}>{textoMostrar}</div>
+            {esSolicitud&&usuario.rol==="admin"&&(
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setConfirm({id:n.id,folio,accion:"aprobar",solicitante:textoMostrar,uidSol})} style={{fontSize:12,cursor:"pointer",color:"#fff",background:C.exito,border:"none",borderRadius:6,padding:"6px 16px",fontWeight:700}}>✅ Aprobar</button>
+                <button onClick={()=>setConfirm({id:n.id,folio,accion:"rechazar",solicitante:textoMostrar,uidSol})} style={{fontSize:12,cursor:"pointer",color:"#fff",background:C.error,border:"none",borderRadius:6,padding:"6px 16px",fontWeight:700}}>❌ Rechazar</button>
+              </div>
+            )}
+            {!esSolicitud&&(
+              <button onClick={()=>marcarLeida(n.id)} style={{fontSize:11,cursor:"pointer",color:"#fff",background:"#7D6608",border:"none",borderRadius:6,padding:"3px 10px",fontWeight:700}}>✓ Marcar como leída</button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Dashboard({usuario,ordenes,notifs,setVista,recargarNotifs}){
+  const stats=[
+    {l:"Total",v:ordenes.length,col:C.marino},
+    {l:"Borrador",v:ordenes.filter(o=>o.estado==="borrador").length,col:"#7D6608"},
+    {l:"En Proceso",v:ordenes.filter(o=>o.estado==="en_proceso").length,col:C.cielo},
+    {l:"Completadas",v:ordenes.filter(o=>o.estado==="completada").length,col:C.exito}
+  ];
+  return (
+    <div style={{padding:16}}>
+      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:4}}>Bienvenida, {usuario.nombre.split(" ")[0]} 👋</div>
+      <div style={{color:C.texto,fontSize:13,marginBottom:20}}>{ahora()}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
+        {stats.map(s=>(
+          <div key={s.l} style={{background:C.blanco,borderRadius:12,padding:16,textAlign:"center",boxShadow:"0 2px 6px rgba(0,0,0,0.07)"}}>
+            <div style={{fontSize:28,fontWeight:800,color:s.col}}>{s.v}</div>
+            <div style={{fontSize:12,color:C.texto}}>{s.l}</div>
+          </div>
+        ))}
+      </div>
+      {notifs.length>0&&(
+        <NotifPanel notifs={notifs} usuario={usuario} recargarNotifs={recargarNotifs}/>
+      )}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <Btn ch="➕ Nueva Orden" onClick={()=>setVista("nueva_orden")} color={C.marino} full/>
+        <Btn ch="📋 Ver Órdenes" onClick={()=>setVista("ordenes")} color={C.cielo} full/>
+      </div>
+    </div>
+  );
+}
+
+function SecCL({sec,data,onChange}){
+  const [open,setOpen]=useState(false);
+  const items=getItems(sec);
+  const d=data[sec]||{realiza:null,items:{}};
+  const checked=Object.values(d.items).filter(Boolean).length;
+  function setR(v){onChange(sec,{...d,realiza:v,items:v?d.items:{}});if(v)setOpen(true);else setOpen(false);}
+  function tog(item){onChange(sec,{...d,items:{...d.items,[item]:!d.items[item]}});}
+  return (
+    <div style={{border:`1.5px solid ${C.borde}`,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
+      <div style={{background:d.realiza===false?"#F8D7DA":d.realiza?"#E8F5E9":C.gris,padding:"12px 14px"}}>
+        <div style={{fontWeight:700,fontSize:13,color:C.marino,cursor:"pointer",marginBottom:8}} onClick={()=>d.realiza&&setOpen(!open)}>
+          {d.realiza?open?"▼ ":"▶ ":"○ "}{sec}{d.realiza&&<span style={{fontSize:11,color:C.texto,marginLeft:6}}>({checked}/{items.length})</span>}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <span onClick={()=>setR(true)} style={{padding:"4px 12px",borderRadius:12,fontSize:12,cursor:"pointer",fontWeight:700,background:d.realiza===true?C.exito:"#ddd",color:d.realiza===true?"#fff":"#555"}}>✓ Realizar</span>
+          <span onClick={()=>setR(false)} style={{padding:"4px 12px",borderRadius:12,fontSize:12,cursor:"pointer",fontWeight:700,background:d.realiza===false?C.error:"#ddd",color:d.realiza===false?"#fff":"#555"}}>✗ No realizar</span>
+        </div>
+      </div>
+      {open&&d.realiza&&(
+        <div style={{padding:14}}>
+          {items.map(it=>(
+            <label key={it} style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10,cursor:"pointer"}}>
+              <input type="checkbox" checked={!!d.items[it]} onChange={()=>tog(it)} style={{marginTop:2,width:18,height:18,accentColor:C.marino}}/>
+              <span style={{fontSize:13,color:C.texto,lineHeight:1.4}}>{it}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrdenGeneral({usuario,onDone,onVolver,oe}){
+  const [folio,setFolio]=useState(oe?.folio||"");
+  const [saving,setSaving]=useState(false);
+  const [err,setErr]=useState("");
+  const [o,setO]=useState({
+    cliente_nombre:oe?.cliente_nombre||"",cliente_dir:oe?.cliente_dir||"",
+    cliente_ciudad:oe?.cliente_ciudad||"",cliente_tel:oe?.cliente_tel||"",
+    tipo_servicio:oe?.equipo_tipo?.replace("GENERAL: ","")||"",
+    descripcion:oe?.lev_obs||"",materiales:oe?.corr_descripcion||"",
+    envio_wa:oe?.envio_wa||"",envio_email:oe?.envio_email||""
+  });
+  useEffect(()=>{if(!oe)sigFolio().then(setFolio);},[]);
+  function upd(k,v){setO(p=>({...p,[k]:v}));}
+  async function guardar(estado){
+    setSaving(true);
+    const datos={folio,estado,creado_por:usuario.id,fecha_guardado:new Date().toISOString(),
+      cliente_nombre:o.cliente_nombre,cliente_dir:o.cliente_dir,cliente_ciudad:o.cliente_ciudad,cliente_tel:o.cliente_tel,
+      equipo_tipo:`GENERAL: ${o.tipo_servicio}`,lev_obs:o.descripcion,corr_descripcion:o.materiales,
+      envio_wa:o.envio_wa,envio_email:o.envio_email};
+    if(oe){await sb.from("ordenes").update(datos).eq("id",oe.id);}
+    else{await sb.from("ordenes").insert(datos);}
+    await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden General #${folio} — ${o.cliente_nombre||"sin cliente"}`});
+    setSaving(false);onDone();
+  }
+  function validar(){
+    if(!o.cliente_nombre||!o.cliente_dir||!o.cliente_ciudad||!o.cliente_tel||!o.tipo_servicio||!o.descripcion){setErr("Completa todos los campos obligatorios.");return false;}
+    if(!o.envio_wa&&!o.envio_email){setErr("Ingresa WhatsApp o correo del cliente.");return false;}
+    setErr("");return true;
+  }
+  return (
+    <div style={{padding:"0 16px",paddingBottom:80}}>
+      <button onClick={onVolver} style={{background:"transparent",border:`1.5px solid ${C.borde}`,borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",margin:"12px 0 16px"}}>← Volver</button>
+      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>📋 Orden General #{folio}</div>
+      <Card>
+        <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:16}}>👤 Datos del Cliente</div>
+        <Inp lbl="Nombre / Razón Social" val={o.cliente_nombre} set={v=>upd("cliente_nombre",v)} req ph="Nombre del cliente"/>
+        <Inp lbl="Dirección" val={o.cliente_dir} set={v=>upd("cliente_dir",v)} req ph="Calle, número, colonia"/>
+        <Inp lbl="Ciudad" val={o.cliente_ciudad} set={v=>upd("cliente_ciudad",v)} req ph="Ciudad, estado"/>
+        <Inp lbl="Teléfono" val={o.cliente_tel} set={v=>upd("cliente_tel",v)} req ph="10 dígitos" num/>
+      </Card>
+      <Card>
+        <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:16}}>🔧 Detalles del Servicio</div>
+        <Inp lbl="Tipo de servicio" val={o.tipo_servicio} set={v=>upd("tipo_servicio",v)} req ph="ej. Instalación eléctrica, entrega de equipo..."/>
+        <TA lbl="Descripción del trabajo realizado" val={o.descripcion} set={v=>upd("descripcion",v)} req ph="Describe detalladamente el trabajo realizado..."/>
+        <TA lbl="Materiales utilizados" val={o.materiales} set={v=>upd("materiales",v)} ph="Lista los materiales o refacciones utilizadas..."/>
+      </Card>
+      <Card style={{background:C.amarillo,border:`1px solid #F0CA00`}}>
+        <div style={{fontWeight:800,color:"#7D6608",marginBottom:12}}>✍️ Firma y Envío</div>
+        <div style={{background:"#fff",borderRadius:8,padding:16,marginBottom:16,textAlign:"center",color:"#aaa",height:80,display:"flex",alignItems:"center",justifyContent:"center",border:`2px dashed ${C.borde}`}}>Firma digital — próximamente</div>
+        <Inp lbl="📱 WhatsApp del cliente" val={o.envio_wa} set={v=>upd("envio_wa",v)} ph="10 dígitos" num/>
+        <Inp lbl="✉️ Correo del cliente" val={o.envio_email} set={v=>upd("envio_email",v)} ph="correo@ejemplo.com" type="email"/>
+        {err&&<div style={{color:C.error,fontSize:13,marginBottom:10,padding:"8px 12px",background:"#fdecea",borderRadius:8}}>{err}</div>}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Btn ch="💾 Guardar borrador" onClick={()=>guardar("borrador")} color={C.cielo} out sm dis={saving}/>
+          <Btn ch={saving?"Guardando...":"✅ Completar"} onClick={()=>{if(validar())guardar("completada");}} color={C.exito} dis={saving}/>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function OrdenMant({usuario,onDone,onVolver,oe}){
+  const [paso,setPaso]=useState(0);
+  const [folio,setFolio]=useState(oe?.folio||"");
+  const [saving,setSaving]=useState(false);
+  const [errEnvio,setErrEnvio]=useState("");
+  const [o,setO]=useState({
+    cliente_nombre:oe?.cliente_nombre||"",cliente_dir:oe?.cliente_dir||"",
+    cliente_ciudad:oe?.cliente_ciudad||"",cliente_tel:oe?.cliente_tel||"",
+    equipo_tipo:oe?.equipo_tipo||"",equipo_marca:oe?.equipo_marca||"",
+    equipo_modelo:oe?.equipo_modelo||"",equipo_serie:oe?.equipo_serie||"",
+    lev_obs:oe?.lev_obs||"",
+    prev_realiza:oe?.prev_realiza??null,prev_checklist:oe?.prev_checklist||{},
+    prev_comentarios:oe?.prev_comentarios||"",prev_proximo:oe?.prev_proximo||"",
+    corr_realiza:oe?.corr_realiza??null,corr_descripcion:oe?.corr_descripcion||"",
+    corr_refacciones:oe?.corr_refacciones||"",
+    envio_wa:oe?.envio_wa||"",envio_email:oe?.envio_email||""
+  });
+  useEffect(()=>{if(!oe)sigFolio().then(setFolio);},[]);
+  function upd(k,v){setO(p=>({...p,[k]:v}));}
+  const secs=EQUIPOS[o.equipo_tipo]||[];
+  async function guardar(estado){
+    setSaving(true);
+    const datos={folio,estado,creado_por:usuario.id,fecha_guardado:new Date().toISOString(),...o};
+    if(oe){await sb.from("ordenes").update(datos).eq("id",oe.id);}
+    else{await sb.from("ordenes").insert(datos);}
+    await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden #${folio} — ${o.cliente_nombre||"sin cliente"} | ${o.equipo_tipo}`});
+    setSaving(false);onDone();
+  }
+  const pasos=["Datos","Levantamiento","Preventivo","Correctivo"];
+  return (
+    <div style={{paddingBottom:80}}>
+      <button onClick={onVolver} style={{background:"transparent",border:`1.5px solid ${C.borde}`,borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",margin:"12px 16px 0"}}>← Volver</button>
+      <div style={{display:"flex",background:C.gris,borderRadius:10,margin:"12px 16px",padding:4}}>
+        {pasos.map((p,i)=>(
+          <div key={i} onClick={()=>setPaso(i)} style={{flex:1,textAlign:"center",padding:"8px 2px",borderRadius:8,background:paso===i?C.marino:"transparent",color:paso===i?"#fff":C.texto,fontSize:11,fontWeight:700,cursor:"pointer"}}>{i+1}. {p}</div>
+        ))}
+      </div>
+      <div style={{padding:"0 16px"}}>
+        {paso===0&&(
+          <div>
+            <Card>
+              <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:16}}>👤 Datos del Cliente</div>
+              <Inp lbl="Nombre / Razón Social" val={o.cliente_nombre} set={v=>upd("cliente_nombre",v)} req ph="Nombre del cliente o hospital"/>
+              <Inp lbl="Dirección" val={o.cliente_dir} set={v=>upd("cliente_dir",v)} req ph="Calle, número, colonia"/>
+              <Inp lbl="Ciudad" val={o.cliente_ciudad} set={v=>upd("cliente_ciudad",v)} req ph="Ciudad, estado"/>
+              <Inp lbl="Teléfono" val={o.cliente_tel} set={v=>upd("cliente_tel",v)} req ph="10 dígitos" num/>
+            </Card>
+            <Card>
+              <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:16}}>🔬 Datos del Equipo</div>
+              <Sel lbl="Tipo de Equipo" val={o.equipo_tipo} set={v=>upd("equipo_tipo",v)} opts={Object.keys(EQUIPOS)} req/>
+              <Inp lbl="Marca" val={o.equipo_marca} set={v=>upd("equipo_marca",v)} req ph="ej. Philips, Siemens, GE"/>
+              <Inp lbl="Modelo" val={o.equipo_modelo} set={v=>upd("equipo_modelo",v)} req ph="Modelo del equipo"/>
+              <Inp lbl="Número de Serie" val={o.equipo_serie} set={v=>upd("equipo_serie",v)} req ph="Serie del fabricante"/>
+            </Card>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <Btn ch="💾 Borrador" onClick={()=>guardar("borrador")} color={C.cielo} out sm dis={saving}/>
+              <Btn ch="Siguiente →" onClick={()=>setPaso(1)} color={C.marino}/>
+            </div>
+          </div>
+        )}
+        {paso===1&&(
+          <div>
+            <Card>
+              <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:12}}>📋 Levantamiento de Equipo</div>
+              <div style={{background:C.gris,borderRadius:8,padding:12,marginBottom:14,fontSize:13,color:C.texto}}>📅 {ahora()} | 👤 {usuario.nombre}</div>
+              <TA lbl="Observaciones y fallas detectadas" val={o.lev_obs} set={v=>upd("lev_obs",v)} ph="Estado general del equipo, fallas visibles..."/>
+              <div style={{background:C.gris,border:`2px dashed ${C.borde}`,borderRadius:8,padding:20,textAlign:"center",color:"#aaa",fontSize:13}}>📸 Fotos — próximamente</div>
+            </Card>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <Btn ch="← Anterior" onClick={()=>setPaso(0)} color={C.texto} out sm/>
+              <div>
+                <Btn ch="💾" onClick={()=>guardar("borrador")} color={C.cielo} out sm dis={saving}/>
+                <Btn ch="Siguiente →" onClick={()=>setPaso(2)} color={C.marino}/>
+              </div>
+            </div>
+          </div>
+        )}
+        {paso===2&&(
+          <div>
+            <Card>
+              <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:16}}>🔧 Mantenimiento Preventivo</div>
+              <div style={{display:"flex",gap:10,marginBottom:20}}>
+                {[{v:true,lbl:"✓ Se realiza",col:C.exito},{v:false,lbl:"✗ No se realiza",col:C.error}].map(b=>(
+                  <div key={String(b.v)} onClick={()=>upd("prev_realiza",b.v)} style={{flex:1,padding:14,borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:14,background:o.prev_realiza===b.v?b.col:C.gris,color:o.prev_realiza===b.v?"#fff":C.texto,border:`2px solid ${o.prev_realiza===b.v?b.col:C.borde}`}}>{b.lbl}</div>
+                ))}
+              </div>
+              {o.prev_realiza===true&&(
+                <div>
+                  <div style={{fontWeight:700,color:C.marino,marginBottom:12}}>Checklist — {o.equipo_tipo}</div>
+                  {secs.map(sec=><SecCL key={sec} sec={sec} data={o.prev_checklist} onChange={(s,v)=>upd("prev_checklist",{...o.prev_checklist,[s]:v})}/>)}
+                  <TA lbl="Comentarios adicionales" val={o.prev_comentarios} set={v=>upd("prev_comentarios",v)} ph="Observaciones, hallazgos, recomendaciones..."/>
+                  <Inp lbl="📅 Programar próximo mantenimiento" val={o.prev_proximo} set={v=>upd("prev_proximo",v)} ph="ej. 2027-01-15"/>
+                </div>
+              )}
+            </Card>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <Btn ch="← Anterior" onClick={()=>setPaso(1)} color={C.texto} out sm/>
+              <div>
+                <Btn ch="💾" onClick={()=>guardar("borrador")} color={C.cielo} out sm dis={saving}/>
+                <Btn ch="Siguiente →" onClick={()=>setPaso(3)} color={C.marino} dis={o.prev_realiza===null}/>
+              </div>
+            </div>
+          </div>
+        )}
+        {paso===3&&(
+          <div>
+            <Card>
+              <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:16}}>🛠️ Mantenimiento Correctivo</div>
+              <div style={{display:"flex",gap:10,marginBottom:20}}>
+                {[{v:true,lbl:"✓ Se realiza",col:C.exito},{v:false,lbl:"✗ No se realiza",col:C.error}].map(b=>(
+                  <div key={String(b.v)} onClick={()=>upd("corr_realiza",b.v)} style={{flex:1,padding:14,borderRadius:10,textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:14,background:o.corr_realiza===b.v?b.col:C.gris,color:o.corr_realiza===b.v?"#fff":C.texto,border:`2px solid ${o.corr_realiza===b.v?b.col:C.borde}`}}>{b.lbl}</div>
+                ))}
+              </div>
+              {o.corr_realiza===true&&(
+                <div>
+                  <TA lbl="Descripción del trabajo correctivo" val={o.corr_descripcion} set={v=>upd("corr_descripcion",v)} req ph="Describe el problema, diagnóstico y procedimiento..."/>
+                  <TA lbl="Refacciones utilizadas" val={o.corr_refacciones} set={v=>upd("corr_refacciones",v)} ph="Piezas, componentes o materiales..."/>
+                </div>
+              )}
+            </Card>
+            {o.corr_realiza!==null&&(
+              <Card style={{background:C.amarillo,border:`1px solid #F0CA00`}}>
+                <div style={{fontWeight:800,color:"#7D6608",marginBottom:12}}>✍️ Firma y Cierre</div>
+                <div style={{background:"#fff",borderRadius:8,padding:16,marginBottom:16,textAlign:"center",color:"#aaa",height:80,display:"flex",alignItems:"center",justifyContent:"center",border:`2px dashed ${C.borde}`}}>Firma digital — próximamente</div>
+                <Inp lbl="📱 WhatsApp del cliente" val={o.envio_wa} set={v=>upd("envio_wa",v)} ph="10 dígitos" num/>
+                <Inp lbl="✉️ Correo del cliente" val={o.envio_email} set={v=>upd("envio_email",v)} ph="correo@ejemplo.com" type="email"/>
+                {errEnvio&&<div style={{color:C.error,fontSize:13,marginBottom:10,padding:"8px 12px",background:"#fdecea",borderRadius:8}}>{errEnvio}</div>}
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <Btn ch="💾 Borrador" onClick={()=>guardar("borrador")} color={C.cielo} out sm dis={saving}/>
+                  <Btn ch={saving?"Guardando...":"✅ Completar"} onClick={()=>{
+                    if(!o.cliente_nombre||!o.equipo_tipo){setErrEnvio("Faltan datos del cliente o equipo. Regresa al paso 1.");return;}
+                    if(o.prev_realiza===null){setErrEnvio("Define si se realizó mantenimiento preventivo.");return;}
+                    if(o.corr_realiza===null){setErrEnvio("Define si se realizó mantenimiento correctivo.");return;}
+                    if(!o.envio_wa&&!o.envio_email){setErrEnvio("Ingresa WhatsApp o correo del cliente.");return;}
+                    setErrEnvio("");guardar("completada");
+                  }} color={C.exito} dis={saving}/>
+                </div>
+              </Card>
+            )}
+            <Btn ch="← Anterior" onClick={()=>setPaso(2)} color={C.texto} out sm/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NuevaOrden({usuario,onDone,oe}){
+  const esGen=oe?.equipo_tipo?.startsWith("GENERAL:");
+  const [tipo,setTipo]=useState(oe?(esGen?"general":"mant"):null);
+  if(!tipo){
+    return (
+      <div style={{padding:16,paddingBottom:80}}>
+        <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:8}}>Nueva Orden</div>
+        <div style={{color:C.texto,fontSize:14,marginBottom:24}}>¿Qué tipo de orden necesitas crear?</div>
+        <div onClick={()=>setTipo("mant")} style={{background:C.blanco,borderRadius:12,padding:20,marginBottom:14,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",cursor:"pointer",borderLeft:`4px solid ${C.marino}`}}>
+          <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:4}}>🔬 Orden de Mantenimiento</div>
+          <div style={{fontSize:13,color:C.texto}}>Para equipos de imagenología — incluye levantamiento, checklist preventivo y correctivo.</div>
+        </div>
+        <div onClick={()=>setTipo("general")} style={{background:C.blanco,borderRadius:12,padding:20,marginBottom:14,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",cursor:"pointer",borderLeft:`4px solid ${C.cielo}`}}>
+          <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:4}}>📋 Orden General</div>
+          <div style={{fontSize:13,color:C.texto}}>Para instalaciones, entregas, recepciones, capacitaciones u otros servicios.</div>
+        </div>
+      </div>
+    );
+  }
+  if(tipo==="general") return <OrdenGeneral usuario={usuario} onDone={onDone} onVolver={()=>setTipo(null)} oe={oe}/>;
+  return <OrdenMant usuario={usuario} onDone={onDone} onVolver={()=>setTipo(null)} oe={oe}/>;
+}
+
+function ListaOrdenes({ordenes,onSel,loading}){
+  const [f,setF]=useState("todas");
+  const filt=ordenes.filter(o=>f==="todas"||o.estado===f);
+  if(loading) return <div style={{textAlign:"center",padding:40,color:C.texto}}>Cargando...</div>;
+  return (
+    <div style={{padding:16,paddingBottom:80}}>
+      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:14}}>Órdenes de Servicio</div>
+      <div style={{display:"flex",gap:6,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
+        {["todas","borrador","en_proceso","completada"].map(x=>(
+          <button key={x} onClick={()=>setF(x)} style={{padding:"6px 14px",borderRadius:20,border:`2px solid ${C.marino}`,background:f===x?C.marino:"transparent",color:f===x?"#fff":C.marino,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {x==="todas"?"Todas":x==="borrador"?"Borradores":x==="en_proceso"?"En Proceso":"Completadas"}
+          </button>
+        ))}
+      </div>
+      {filt.length===0&&<div style={{textAlign:"center",color:C.texto,padding:40,background:C.blanco,borderRadius:12}}>No hay órdenes en este estado.</div>}
+      {filt.map(o=>(
+        <div key={o.id} onClick={()=>onSel(o)} style={{background:C.blanco,borderRadius:12,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",cursor:"pointer",borderLeft:`4px solid ${o.estado==="completada"?C.exito:o.estado==="en_proceso"?C.cielo:"#F0CA00"}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{fontWeight:800,color:C.marino,fontSize:16}}>Orden #{o.folio}</div>
+              <div style={{color:C.texto,fontSize:13,marginTop:2}}>{o.cliente_nombre||"Sin cliente"}</div>
+              <div style={{color:"#aaa",fontSize:12,marginTop:2}}>{o.equipo_tipo} {o.equipo_marca?`| ${o.equipo_marca}`:""}</div>
+              <div style={{color:"#ccc",fontSize:11,marginTop:2}}>{nombreU(o.creado_por)}</div>
+            </div>
+            <Badge tipo={o.estado}/>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
+  const [confirmEliminar,setConfirmEliminar]=useState(false);
+  const [eliminando,setEliminando]=useState(false);
+  const [solicitado,setSolicitado]=useState(false);
+  const esAdmin=usuario.rol==="admin";
+  const esBorrador=orden.estado==="borrador";
+  async function eliminar(){
+    setEliminando(true);
+    const {error} = await sb.from("ordenes").delete().eq("id",orden.id);
+    if(error){
+      alert("Error al eliminar: " + error.message + " | Code: " + error.code);
+      setEliminando(false);
+      return;
+    }
+    await sb.from("notificaciones").insert({mensaje:`🗑️ Orden #${orden.folio} eliminada por ${usuario.nombre.split(" ")[0]}`});
+    setEliminando(false);
+    onRefrescar();
+    onVolver();
+  }
+  async function solicitarPermiso(){
+    await sb.from("solicitudes_edicion").insert({
+      orden_id: orden.id,
+      orden_folio: orden.folio,
+      solicitado_por: usuario.id,
+      estado: "pendiente"
+    });
+    await sb.from("notificaciones").insert({
+      mensaje:`🔔 SOLICITUD|${orden.folio}|${usuario.id}|${usuario.nombre.split(" ")[0]} solicita permiso para editar Orden #${orden.folio} — ${orden.cliente_nombre}`,
+      para_rol: "admin"
+    });
+    setSolicitado(true);
+  }
+  return (
+    <div style={{padding:16,paddingBottom:80}}>
+      <button onClick={onVolver} style={{background:"transparent",border:`1.5px solid ${C.borde}`,borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",marginBottom:16}}>← Volver</button>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{fontWeight:800,color:C.marino,fontSize:18}}>Orden #{orden.folio}</div>
+          <Badge tipo={orden.estado}/>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {(esAdmin||esBorrador)&&<Btn ch="✏️ Editar" onClick={()=>onEditar(orden)} color={C.cielo} sm/>}
+          {esAdmin&&<Btn ch="🗑️ Eliminar" onClick={()=>setConfirmEliminar(true)} color={C.error} sm/>}
+          {!esAdmin&&!esBorrador&&!solicitado&&<Btn ch="✏️ Solicitar permiso" onClick={solicitarPermiso} color={C.cielo} sm/>}
+          {!esAdmin&&solicitado&&<div style={{background:"#D5F5E3",color:"#1E8449",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700}}>✓ Solicitud enviada</div>}
+        </div>
+      </div>
+      {confirmEliminar&&(
+        <div style={{background:"#fdecea",border:`1.5px solid ${C.error}`,borderRadius:12,padding:16,marginBottom:16}}>
+          <div style={{fontWeight:700,color:C.error,marginBottom:8}}>⚠️ ¿Eliminar esta orden permanentemente?</div>
+          <div style={{fontSize:13,color:C.texto,marginBottom:12}}>Esta acción no se puede deshacer.</div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn ch={eliminando?"Eliminando...":"Sí, eliminar"} onClick={eliminar} color={C.error} sm dis={eliminando}/>
+            <Btn ch="Cancelar" onClick={()=>setConfirmEliminar(false)} color={C.texto} out sm/>
+          </div>
+        </div>
+      )}
+      <Card>
+        <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>👤 Cliente</div>
+        <div style={{fontSize:14}}><strong>{orden.cliente_nombre}</strong></div>
+        <div style={{fontSize:13,color:C.texto}}>{orden.cliente_dir} | {orden.cliente_ciudad}</div>
+        <div style={{fontSize:13,color:C.texto}}>Tel: {orden.cliente_tel}</div>
+        <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borde}`,fontSize:12,color:"#aaa"}}>Realizado por: <strong style={{color:C.marino}}>{nombreU(orden.creado_por)}</strong></div>
+      </Card>
+      <Card>
+        <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>🔬 Equipo</div>
+        <div style={{fontSize:14}}><strong>{orden.equipo_tipo}</strong></div>
+        <div style={{fontSize:13,color:C.texto}}>{orden.equipo_marca} {orden.equipo_modelo} | Serie: {orden.equipo_serie}</div>
+      </Card>
+      <Card>
+        <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>📋 Levantamiento</div>
+        <div style={{fontSize:14}}>{orden.lev_obs||"Sin observaciones"}</div>
+      </Card>
+      <Card>
+        <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>🔧 Preventivo</div>
+        {orden.prev_realiza===false&&<div style={{color:C.error,fontWeight:700}}>✗ No se realizó</div>}
+        {orden.prev_realiza===true&&(
+          <div>
+            <div style={{color:C.exito,fontWeight:700,marginBottom:8}}>✓ Realizado</div>
+            {Object.entries(orden.prev_checklist||{}).map(([sec,d])=>(
+              <div key={sec} style={{marginBottom:8}}>
+                <div style={{fontWeight:700,fontSize:13}}>{sec}</div>
+                {d.realiza===false?<div style={{color:C.error,fontSize:12}}>No se realizó</div>
+                :Object.entries(d.items||{}).map(([it,v])=>(
+                  <div key={it} style={{fontSize:12,color:v?C.exito:C.texto,paddingLeft:12}}>{v?"✓":"○"} {it}</div>
+                ))}
+              </div>
+            ))}
+            {orden.prev_comentarios&&<div style={{marginTop:8,fontSize:13}}><strong>Comentarios:</strong> {orden.prev_comentarios}</div>}
+            {orden.prev_proximo&&<div style={{marginTop:8,background:C.amarillo,borderRadius:8,padding:8,fontSize:13,color:"#7D6608"}}>📅 Próximo: <strong>{orden.prev_proximo}</strong></div>}
+          </div>
+        )}
+        {orden.prev_realiza===null&&<div style={{color:"#aaa"}}>Pendiente</div>}
+      </Card>
+      <Card>
+        <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>🛠️ Correctivo</div>
+        {orden.corr_realiza===false&&<div style={{color:C.error,fontWeight:700}}>✗ No se realizó</div>}
+        {orden.corr_realiza===true&&(
+          <div>
+            <div style={{color:C.exito,fontWeight:700,marginBottom:8}}>✓ Realizado</div>
+            <div style={{fontSize:14,marginBottom:8}}>{orden.corr_descripcion}</div>
+            {orden.corr_refacciones&&<div style={{fontSize:13}}><strong>Refacciones:</strong> {orden.corr_refacciones}</div>}
+          </div>
+        )}
+        {orden.corr_realiza===null&&<div style={{color:"#aaa"}}>Pendiente</div>}
+      </Card>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <Btn ch="📄 PDF" onClick={()=>alert("Próximamente")} color={C.cielo} sm/>
+        <Btn ch="📱 WhatsApp" onClick={()=>alert("Próximamente")} color={C.exito} sm/>
+        <Btn ch="✉️ Correo" onClick={()=>alert("Próximamente")} color={C.marino} sm/>
+      </div>
+    </div>
+  );
+}
+
+function Agenda({ordenes}){
+  const hoy=new Date();
+  const [mes,setMes]=useState(hoy.getMonth());
+  const [anio,setAnio]=useState(hoy.getFullYear());
+  const [dia,setDia]=useState(null);
+  const meses=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const eventos={};
+  ordenes.forEach(o=>{
+    if(o.prev_proximo){
+      const d=new Date(o.prev_proximo);
+      if(!isNaN(d)){
+        const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+        if(!eventos[k])eventos[k]=[];
+        eventos[k].push(o);
+      }
+    }
+  });
+  const primerDia=new Date(anio,mes,1).getDay();
+  const diasMes=new Date(anio,mes+1,0).getDate();
+  const celdas=[];
+  for(let i=0;i<primerDia;i++)celdas.push(null);
+  for(let d=1;d<=diasMes;d++)celdas.push(d);
+  while(celdas.length%7!==0)celdas.push(null);
+  const esHoy=d=>d===hoy.getDate()&&mes===hoy.getMonth()&&anio===hoy.getFullYear();
+  const tieneEvento=d=>!!eventos[`${anio}-${mes}-${d}`];
+  const eventosDelDia=dia?eventos[`${anio}-${mes}-${dia}`]||[]:[];
+  function prevMes(){if(mes===0){setMes(11);setAnio(a=>a-1);}else setMes(m=>m-1);setDia(null);}
+  function nextMes(){if(mes===11){setMes(0);setAnio(a=>a+1);}else setMes(m=>m+1);setDia(null);}
+  return (
+    <div style={{padding:16,paddingBottom:80}}>
+      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>📅 Agenda</div>
+      <div style={{background:C.blanco,borderRadius:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",overflow:"hidden",marginBottom:16}}>
+        <div style={{background:C.marino,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span onClick={prevMes} style={{color:"#fff",cursor:"pointer",fontSize:22,padding:"0 8px"}}>‹</span>
+          <div style={{color:"#fff",fontWeight:800,fontSize:17}}>{meses[mes]} {anio}</div>
+          <span onClick={nextMes} style={{color:"#fff",cursor:"pointer",fontSize:22,padding:"0 8px"}}>›</span>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:C.gris}}>
+          {["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"].map(d=><div key={d} style={{textAlign:"center",padding:"8px 0",fontSize:11,fontWeight:700,color:C.texto}}>{d}</div>)}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+          {celdas.map((d,i)=>{
+            const sel=d===dia;const hoyF=d&&esHoy(d);const ev=d&&tieneEvento(d);
+            return (
+              <div key={i} onClick={()=>d&&setDia(d)} style={{minHeight:44,padding:"6px 4px",textAlign:"center",cursor:d?"pointer":"default",borderBottom:`1px solid ${C.borde}`,borderRight:i%7!==6?`1px solid ${C.borde}`:"none",background:sel?C.marino:"#fff"}}>
+                {d&&(
+                  <div>
+                    <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto",background:hoyF?C.cielo:"transparent",color:sel?"#fff":hoyF?"#fff":C.texto,fontWeight:hoyF||sel?800:400,fontSize:14}}>{d}</div>
+                    {ev&&<div style={{width:6,height:6,borderRadius:"50%",margin:"2px auto 0",background:sel?"#FFF3B0":C.cielo}}/>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {dia&&(
+        <div>
+          <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:12}}>{dia} de {meses[mes]} de {anio}</div>
+          {eventosDelDia.length===0
+            ?<div style={{background:C.blanco,borderRadius:12,padding:20,textAlign:"center",color:C.texto}}>Sin mantenimientos para este día.</div>
+            :eventosDelDia.map(o=>(
+              <div key={o.id} style={{background:C.blanco,borderRadius:12,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",borderLeft:`4px solid ${C.cielo}`}}>
+                <div style={{fontWeight:800,color:C.marino}}>Orden #{o.folio}</div>
+                <div style={{fontSize:14,color:C.texto}}>{o.cliente_nombre}</div>
+                <div style={{fontSize:13,color:"#aaa"}}>{o.equipo_tipo} | {o.equipo_marca} {o.equipo_modelo}</div>
+                <div style={{background:C.amarillo,borderRadius:8,padding:8,marginTop:8,fontSize:13,color:"#7D6608"}}>🔧 Mantenimiento Preventivo Programado</div>
+              </div>
+            ))
+          }
+        </div>
+      )}
+      {!dia&&<div style={{background:C.blanco,borderRadius:12,padding:16,fontSize:13,color:C.texto,textAlign:"center"}}>Toca un día para ver mantenimientos.<br/><span style={{fontSize:12,color:"#aaa"}}>Puntos azules = servicios programados.</span></div>}
+    </div>
+  );
+}
+
+function Config({usuario,onLogout,historial}){
+  const [users,setUsers]=useState(USUARIOS);
+  const [editando,setEditando]=useState(null);
+  const [nuevoPin,setNuevoPin]=useState("");
+  const [mostrar,setMostrar]=useState(false);
+  const [ok,setOk]=useState(false);
+  function guardarPin(id){
+    if(!nuevoPin.trim())return;
+    setUsers(prev=>prev.map(u=>u.id===id?{...u,pin:nuevoPin}:u));
+    setEditando(null);setNuevoPin("");setOk(true);setTimeout(()=>setOk(false),2000);
+  }
+  return (
+    <div style={{padding:16,paddingBottom:80}}>
+      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>⚙️ Configuración</div>
+      <Card>
+        <div style={{fontWeight:700,color:C.marino,marginBottom:12}}>Mi cuenta</div>
+        <div style={{fontSize:14,marginBottom:4}}><strong>{usuario.nombre}</strong></div>
+        <div style={{fontSize:13,color:C.texto}}>@{usuario.usuario} · {usuario.rol==="admin"?"Administrador":usuario.rol==="supervisor"?"Supervisor":"Ingeniero"}</div>
+      </Card>
+      {usuario.rol==="admin"&&(
+        <Card>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontWeight:700,color:C.marino}}>🔐 Gestión de Usuarios</div>
+            <button onClick={()=>setMostrar(!mostrar)} style={{fontSize:12,cursor:"pointer",padding:"4px 10px",borderRadius:8,fontWeight:700,background:mostrar?C.error:C.marino,color:"#fff",border:"none"}}>{mostrar?"🔒 Ocultar":"👁 Ver PINs"}</button>
+          </div>
+          {ok&&<div style={{background:"#D5F5E3",color:"#1E8449",borderRadius:8,padding:8,marginBottom:12,fontSize:13,fontWeight:700}}>✓ PIN actualizado</div>}
+          {users.map(u=>(
+            <div key={u.id} style={{borderBottom:`1px solid ${C.borde}`,paddingBottom:12,marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14,color:C.marino}}>{u.nombre}</div>
+                  <div style={{fontSize:12,color:C.texto}}>@{u.usuario} · {u.rol==="admin"?"Admin":u.rol==="supervisor"?"Supervisor":"Ing."}</div>
+                  {mostrar&&<div style={{fontSize:13,marginTop:4}}>PIN: <strong style={{fontFamily:"monospace",background:C.gris,padding:"2px 8px",borderRadius:6}}>{u.pin}</strong></div>}
+                </div>
+                <button onClick={()=>{setEditando(u.id);setNuevoPin(u.pin);}} style={{fontSize:12,cursor:"pointer",color:C.cielo,fontWeight:700,background:"transparent",border:"none"}}>Editar</button>
+              </div>
+              {editando===u.id&&(
+                <div style={{marginTop:10,background:C.gris,borderRadius:8,padding:12}}>
+                  <div style={{fontSize:13,marginBottom:6,fontWeight:600}}>Nuevo PIN para {u.nombre.split(" ")[0]}:</div>
+                  <input value={nuevoPin} onChange={e=>setNuevoPin(e.target.value)} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:14,outline:"none",marginBottom:8}}/>
+                  <div style={{display:"flex",gap:8}}>
+                    <Btn ch="✓ Guardar" onClick={()=>guardarPin(u.id)} color={C.exito} sm/>
+                    <Btn ch="Cancelar" onClick={()=>setEditando(null)} color={C.texto} out sm/>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </Card>
+      )}
+      <Card>
+        <div style={{fontWeight:700,color:C.marino,marginBottom:12}}>📜 Historial de Notificaciones</div>
+        {historial&&historial.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin notificaciones en el historial.</div>}
+        {historial&&historial.map((n,i)=>(
+          <div key={i} style={{fontSize:12,color:C.texto,padding:"6px 0",borderBottom:`1px solid ${C.borde}`}}>
+            <div style={{color:"#aaa",fontSize:11,marginBottom:2}}>{new Date(n.fecha).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"})}</div>
+            {n.mensaje.includes("|")?n.mensaje.split("|")[2]:n.mensaje}
+          </div>
+        ))}
+      </Card>
+      <Card>
+        <div style={{fontWeight:700,color:C.marino,marginBottom:12}}>Empresa</div>
+        <div style={{fontSize:13,color:C.texto}}>Electromédica del Bajío, S.A. de C.V.</div>
+        <div style={{fontSize:13,color:C.texto}}>Francisco Alcocer Pozo #318, Col. Los Candiles</div>
+        <div style={{fontSize:13,color:C.texto}}>C.P. 76903, Querétaro, Qro.</div>
+      </Card>
+      <Btn ch="⬅ Cerrar Sesión" onClick={onLogout} color={C.error} out full/>
+    </div>
+  );
+}
+
+function App(){
+  const [usuario,setUsuario]=useState(()=>{try{const u=sessionStorage.getItem("emb_u");return u?JSON.parse(u):null;}catch(e){return null;}});
+  const [vista,setVista]=useState("dashboard");
+  const [ordenes,setOrdenes]=useState([]);
+  const [notifs,setNotifs]=useState([]);
+  const [selec,setSelec]=useState(null);
+  const [oe,setOe]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [historial,setHistorial]=useState([]);
+  async function cargarOrdenes(){setLoading(true);const {data}=await sb.from("ordenes").select("*").order("id",{ascending:false});if(data)setOrdenes(data);setLoading(false);}
+  async function cargarNotifs(rol,uid){
+    let q=sb.from("notificaciones").select("*").eq("leida",false).eq("leida_historial",false).order("fecha",{ascending:false});
+    if(rol==="ingeniero") q=q.eq("para_usuario_id",uid);
+    const {data}=await q;
+    if(data)setNotifs(data);
+  }
+  async function cargarHistorial(){
+    const {data}=await sb.from("notificaciones").select("*").eq("leida_historial",true).order("fecha",{ascending:false}).limit(50);
+    if(data)setHistorial(data);
+  }
+  useEffect(()=>{if(usuario){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial();}},[usuario]);
+  function login(u){sessionStorage.setItem("emb_u",JSON.stringify(u));setUsuario(u);}
+  function logout(){sessionStorage.removeItem("emb_u");setUsuario(null);}
+  function refrescar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial();setSelec(null);setVista("ordenes");}
+  function soloRecargar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial();}
+  if(!usuario) return <Login onLogin={login}/>;
+  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",config:"Configuración"};
+  return (
+    <div style={{minHeight:"100vh",background:C.gris}}>
+      <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={logout}/>
+      <div style={{maxWidth:600,margin:"0 auto"}}>
+        {vista==="dashboard"&&<Dashboard usuario={usuario} ordenes={ordenes} notifs={notifs} setVista={setVista} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial();}}/>}
+        {vista==="nueva_orden"&&<NuevaOrden usuario={usuario} onDone={refrescar} oe={oe}/>}
+        {vista==="ordenes"&&!selec&&<ListaOrdenes ordenes={ordenes} onSel={o=>setSelec(o)} loading={loading}/>}
+        {vista==="ordenes"&&selec&&<DetalleOrden orden={selec} usuario={usuario} onVolver={()=>setSelec(null)} onRefrescar={soloRecargar} onEditar={o=>{setOe(o);setSelec(null);setVista("nueva_orden");}}/>}
+        {vista==="agenda"&&<Agenda ordenes={ordenes}/>}
+        {vista==="config"&&<Config usuario={usuario} onLogout={logout} historial={historial}/>}
+      </div>
+      <Nav vista={vista} setVista={v=>{setOe(null);setVista(v);setSelec(null);}} notifs={notifs.length}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+
+</script>
+</body>
+</html>
