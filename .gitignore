@@ -1,0 +1,5 @@
+recovery-codes.txt
+CONTEXTO_PROYECTO.txt
+*.png
+.claude/
+node_modules/
