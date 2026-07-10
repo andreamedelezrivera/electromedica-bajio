@@ -89,6 +89,18 @@ const ITEMS={
 function getItems(s){return ITEMS[s]||[`Revisión general de ${s}`,`Limpieza de ${s}`,`Verificación de conectores de ${s}`,`Prueba de funcionamiento de ${s}`];}
 function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"});}
 function nombreU(id){return USUARIOS.find(u=>u.id===id)?.nombre||"No especificado";}
+function tipoNotif(mensaje){
+  if(mensaje.includes("SOLICITUD")||mensaje.includes("Tu solicitud para editar"))return "solicitud";
+  if(mensaje.includes("eliminada por"))return "eliminacion";
+  return "generacion";
+}
+const CATEGORIAS_NOTIF=[{id:"todas",lbl:"Todas",ico:"🔔"},{id:"generacion",lbl:"Generación",ico:"💾"},{id:"eliminacion",lbl:"Eliminación",ico:"🗑️"},{id:"solicitud",lbl:"Solicitudes",ico:"✉️"}];
+function aplicarFiltroCategoria(q,cat){
+  if(cat==="eliminacion")return q.ilike("mensaje","%eliminada por%");
+  if(cat==="solicitud")return q.or("mensaje.ilike.%SOLICITUD%,mensaje.ilike.%Tu solicitud para editar%");
+  if(cat==="generacion")return q.not("mensaje","ilike","%eliminada por%").not("mensaje","ilike","%SOLICITUD%").not("mensaje","ilike","%Tu solicitud para editar%");
+  return q;
+}
 async function sigFolio(){
   const {data}=await sb.from("ordenes").select("folio").order("id",{ascending:false}).limit(1);
   const u=data&&data.length>0?parseInt(data[0].folio)||0:0;
@@ -202,6 +214,7 @@ function Nav({vista,setVista,notifs}){
 
 function NotifPanel({notifs,usuario,recargarNotifs}){
   const [confirm,setConfirm]=useState(null); // {id, folio, accion}
+  const [filtro,setFiltro]=useState("todas");
 
   async function ejecutar(){
     const {id,folio,accion,solicitante,uidSol}=confirm;
@@ -222,6 +235,13 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
     recargarNotifs();
   }
 
+  async function eliminarNotif(id){
+    await sb.from("notificaciones").delete().eq("id",id);
+    recargarNotifs();
+  }
+
+  const notifsFiltrados=usuario.rol==="admin"&&filtro!=="todas"?notifs.filter(n=>tipoNotif(n.mensaje)===filtro):notifs;
+
   return (
     <div style={{background:C.amarillo,borderRadius:12,padding:16,marginBottom:16,border:`1px solid #F0CA00`}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -231,6 +251,14 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
           recargarNotifs();
         }} style={{fontSize:12,cursor:"pointer",color:"#fff",fontWeight:700,background:"#7D6608",border:"none",borderRadius:8,padding:"4px 10px"}}>✓ Todas leídas</button>
       </div>
+
+      {usuario.rol==="admin"&&(
+        <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+          {CATEGORIAS_NOTIF.map(c=>(
+            <span key={c.id} onClick={()=>setFiltro(c.id)} style={{fontSize:11,cursor:"pointer",padding:"4px 10px",borderRadius:14,fontWeight:700,background:filtro===c.id?"#7D6608":"rgba(0,0,0,0.08)",color:filtro===c.id?"#fff":"#7D6608"}}>{c.ico} {c.lbl}</span>
+          ))}
+        </div>
+      )}
 
       {confirm&&(
         <div style={{background:"#fff",border:`2px solid ${confirm.accion==="aprobar"?C.exito:C.error}`,borderRadius:10,padding:14,marginBottom:12}}>
@@ -245,24 +273,31 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
         </div>
       )}
 
-      {notifs.map((n,i)=>{
+      {notifsFiltrados.length===0&&<div style={{fontSize:13,color:"#8a7500"}}>Sin notificaciones en esta categoría.</div>}
+      {notifsFiltrados.map((n,i)=>{
         const partes=n.mensaje.split("|");
         const esSolicitud=partes[0]==="🔔 SOLICITUD" && partes.length>=4;
         const folio=esSolicitud?partes[1]:"";
         const uidSol=esSolicitud?parseInt(partes[2]):null;
         const textoMostrar=esSolicitud?partes[3]:n.mensaje;
+        const puedeEliminar=usuario.rol==="admin"||n.para_usuario_id===usuario.id;
         return (
           <div key={i} style={{fontSize:13,color:"#5D4E00",padding:"10px 0",borderBottom:"1px solid rgba(0,0,0,0.08)"}}>
             <div style={{marginBottom:8}}>{textoMostrar}</div>
-            {esSolicitud&&usuario.rol==="admin"&&(
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>setConfirm({id:n.id,folio,accion:"aprobar",solicitante:textoMostrar,uidSol})} style={{fontSize:12,cursor:"pointer",color:"#fff",background:C.exito,border:"none",borderRadius:6,padding:"6px 16px",fontWeight:700}}>✅ Aprobar</button>
-                <button onClick={()=>setConfirm({id:n.id,folio,accion:"rechazar",solicitante:textoMostrar,uidSol})} style={{fontSize:12,cursor:"pointer",color:"#fff",background:C.error,border:"none",borderRadius:6,padding:"6px 16px",fontWeight:700}}>❌ Rechazar</button>
-              </div>
-            )}
-            {!esSolicitud&&(
-              <button onClick={()=>marcarLeida(n.id)} style={{fontSize:11,cursor:"pointer",color:"#fff",background:"#7D6608",border:"none",borderRadius:6,padding:"3px 10px",fontWeight:700}}>✓ Marcar como leída</button>
-            )}
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {esSolicitud&&usuario.rol==="admin"&&(
+                <>
+                  <button onClick={()=>setConfirm({id:n.id,folio,accion:"aprobar",solicitante:textoMostrar,uidSol})} style={{fontSize:12,cursor:"pointer",color:"#fff",background:C.exito,border:"none",borderRadius:6,padding:"6px 16px",fontWeight:700}}>✅ Aprobar</button>
+                  <button onClick={()=>setConfirm({id:n.id,folio,accion:"rechazar",solicitante:textoMostrar,uidSol})} style={{fontSize:12,cursor:"pointer",color:"#fff",background:C.error,border:"none",borderRadius:6,padding:"6px 16px",fontWeight:700}}>❌ Rechazar</button>
+                </>
+              )}
+              {!esSolicitud&&(
+                <button onClick={()=>marcarLeida(n.id)} style={{fontSize:11,cursor:"pointer",color:"#fff",background:"#7D6608",border:"none",borderRadius:6,padding:"3px 10px",fontWeight:700}}>✓ Marcar como leída</button>
+              )}
+              {puedeEliminar&&(
+                <button onClick={()=>eliminarNotif(n.id)} style={{fontSize:11,cursor:"pointer",color:"#7D6608",background:"transparent",border:"none",fontWeight:700}}>🗑️ Eliminar</button>
+              )}
+            </div>
           </div>
         );
       })}
@@ -915,7 +950,7 @@ function Config({usuario,onLogout,historial,onVerHistorial}){
         {historial&&historial.slice(0,5).map((n,i)=>(
           <div key={n.id||i} style={{fontSize:12,color:C.texto,padding:"6px 0",borderBottom:`1px solid ${C.borde}`}}>
             <div style={{color:"#aaa",fontSize:11,marginBottom:2}}>{new Date(n.fecha).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"})}</div>
-            {n.mensaje.includes("|")?n.mensaje.split("|")[2]:n.mensaje}
+            {n.mensaje.includes("|")?n.mensaje.split("|").pop():n.mensaje}
           </div>
         ))}
         {historial&&historial.length>0&&<div style={{marginTop:8,textAlign:"center"}}><span onClick={onVerHistorial} style={{fontSize:13,cursor:"pointer",color:C.cielo,fontWeight:700}}>Ver más →</span></div>}
@@ -931,49 +966,106 @@ function Config({usuario,onLogout,historial,onVerHistorial}){
   );
 }
 
-function HistorialCompleto({onVolver}){
+function HistorialCompleto({usuario,onVolver}){
   const porPagina=15;
   const [pagina,setPagina]=useState(1);
   const [items,setItems]=useState([]);
   const [total,setTotal]=useState(0);
   const [loading,setLoading]=useState(true);
+  const [filtro,setFiltro]=useState("todas");
+  const [confirmBorrarTodas,setConfirmBorrarTodas]=useState(false);
+  const [borrandoTodas,setBorrandoTodas]=useState(false);
+  useEffect(()=>{setPagina(1);},[filtro]);
   useEffect(()=>{
     let activo=true;
     setLoading(true);
     (async()=>{
       const desde=(pagina-1)*porPagina;
       const hasta=desde+porPagina-1;
-      const {data,count}=await sb.from("notificaciones").select("*",{count:"exact"}).eq("leida_historial",true).order("fecha",{ascending:false}).range(desde,hasta);
+      let q=sb.from("notificaciones").select("*",{count:"exact"}).eq("leida_historial",true);
+      if(usuario.rol==="ingeniero") q=q.eq("para_usuario_id",usuario.id);
+      if(usuario.rol==="admin") q=aplicarFiltroCategoria(q,filtro);
+      q=q.order("fecha",{ascending:false}).range(desde,hasta);
+      const {data,count}=await q;
       if(!activo)return;
       setItems(data||[]);
       if(typeof count==="number")setTotal(count);
       setLoading(false);
     })();
     return ()=>{activo=false;};
-  },[pagina]);
+  },[pagina,filtro,usuario.id,usuario.rol]);
   const totalPaginas=Math.max(1,Math.ceil(total/porPagina));
+  async function eliminarNotif(id){
+    await sb.from("notificaciones").delete().eq("id",id);
+    setItems(prev=>prev.filter(n=>n.id!==id));
+    setTotal(t=>Math.max(0,t-1));
+  }
+  async function borrarTodas(){
+    setBorrandoTodas(true);
+    let q=sb.from("notificaciones").delete().eq("leida_historial",true);
+    if(usuario.rol==="ingeniero") q=q.eq("para_usuario_id",usuario.id);
+    else if(usuario.rol==="admin"&&filtro!=="todas") q=aplicarFiltroCategoria(q,filtro);
+    await q;
+    setConfirmBorrarTodas(false);
+    setBorrandoTodas(false);
+    setItems([]);
+    setTotal(0);
+    setPagina(1);
+  }
+  const puedeBorrarTodas=usuario.rol==="admin"||usuario.rol==="ingeniero";
   return (
     <div style={{padding:16,paddingBottom:80}}>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
         <span onClick={onVolver} style={{cursor:"pointer",color:C.marino,fontWeight:700,fontSize:14}}>⬅ Volver</span>
         <div style={{color:C.marino,fontWeight:800,fontSize:18}}>📜 Historial de Notificaciones</div>
       </div>
+      {usuario.rol==="admin"&&(
+        <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+          {CATEGORIAS_NOTIF.map(c=>(
+            <span key={c.id} onClick={()=>setFiltro(c.id)} style={{fontSize:12,cursor:"pointer",padding:"5px 12px",borderRadius:14,fontWeight:700,background:filtro===c.id?C.marino:C.blanco,color:filtro===c.id?"#fff":C.marino,border:`1.5px solid ${C.marino}`}}>{c.ico} {c.lbl}</span>
+          ))}
+        </div>
+      )}
       <Card>
         {loading&&<div style={{fontSize:13,color:"#aaa"}}>Cargando...</div>}
-        {!loading&&items.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin notificaciones en el historial.</div>}
-        {!loading&&items.map((n,i)=>(
-          <div key={n.id||i} style={{fontSize:13,color:C.texto,padding:"8px 0",borderBottom:`1px solid ${C.borde}`}}>
-            <div style={{color:"#aaa",fontSize:11,marginBottom:2}}>{new Date(n.fecha).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"})}</div>
-            {n.mensaje.includes("|")?n.mensaje.split("|")[2]:n.mensaje}
-          </div>
-        ))}
+        {!loading&&items.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin notificaciones en esta categoría.</div>}
+        {!loading&&items.map((n,i)=>{
+          const puedeEliminar=usuario.rol==="admin"||n.para_usuario_id===usuario.id;
+          return (
+            <div key={n.id||i} style={{fontSize:13,color:C.texto,padding:"8px 0",borderBottom:`1px solid ${C.borde}`}}>
+              <div style={{color:"#aaa",fontSize:11,marginBottom:2}}>{new Date(n.fecha).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"})}</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <div>{n.mensaje.includes("|")?n.mensaje.split("|").pop():n.mensaje}</div>
+                {puedeEliminar&&<span onClick={()=>eliminarNotif(n.id)} style={{cursor:"pointer",color:C.error,fontSize:13,flexShrink:0}}>🗑️</span>}
+              </div>
+            </div>
+          );
+        })}
       </Card>
       {totalPaginas>1&&(
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4,marginBottom:12}}>
           <Btn ch="← Anterior" onClick={()=>setPagina(p=>Math.max(1,p-1))} color={C.marino} out sm dis={pagina<=1||loading}/>
           <div style={{fontSize:13,color:C.texto,fontWeight:600}}>Página {pagina} de {totalPaginas}</div>
           <Btn ch="Siguiente →" onClick={()=>setPagina(p=>Math.min(totalPaginas,p+1))} color={C.marino} out sm dis={pagina>=totalPaginas||loading}/>
         </div>
+      )}
+      {puedeBorrarTodas&&total>0&&!confirmBorrarTodas&&(
+        <div style={{textAlign:"center"}}>
+          <span onClick={()=>setConfirmBorrarTodas(true)} style={{fontSize:12,cursor:"pointer",color:C.error,fontWeight:700}}>
+            🗑️ Borrar {usuario.rol==="admin"?(filtro==="todas"?"todo el historial":`categoría "${CATEGORIAS_NOTIF.find(c=>c.id===filtro)?.lbl}"`):"todo mi historial"}
+          </span>
+        </div>
+      )}
+      {confirmBorrarTodas&&(
+        <Card style={{border:`2px solid ${C.error}`}}>
+          <div style={{fontSize:13,color:C.texto,marginBottom:12,fontWeight:600}}>
+            Esta acción no se puede deshacer. ¿Confirmas borrar {usuario.rol==="admin"?(filtro==="todas"?"TODO el historial":`todo el historial de "${CATEGORIAS_NOTIF.find(c=>c.id===filtro)?.lbl}"`):"todo tu historial"}?
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn ch={borrandoTodas?"Borrando...":"Sí, borrar"} onClick={borrarTodas} color={C.error} sm dis={borrandoTodas}/>
+            <Btn ch="Cancelar" onClick={()=>setConfirmBorrarTodas(false)} color={C.texto} out sm dis={borrandoTodas}/>
+          </div>
+        </Card>
       )}
     </div>
   );
@@ -995,28 +1087,30 @@ function App(){
     const {data}=await q;
     if(data)setNotifs(data);
   }
-  async function cargarHistorial(){
-    const {data}=await sb.from("notificaciones").select("*").eq("leida_historial",true).order("fecha",{ascending:false}).limit(5);
+  async function cargarHistorial(rol,uid){
+    let q=sb.from("notificaciones").select("*").eq("leida_historial",true).order("fecha",{ascending:false}).limit(5);
+    if(rol==="ingeniero") q=q.eq("para_usuario_id",uid);
+    const {data}=await q;
     if(data)setHistorial(data);
   }
-  useEffect(()=>{if(usuario){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial();}},[usuario]);
+  useEffect(()=>{if(usuario){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}},[usuario]);
   function login(u){sessionStorage.setItem("emb_u",JSON.stringify(u));setUsuario(u);}
   function logout(){sessionStorage.removeItem("emb_u");setUsuario(null);}
-  function refrescar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial();setSelec(null);setVista("ordenes");}
-  function soloRecargar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial();}
+  function refrescar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);setSelec(null);setVista("ordenes");}
+  function soloRecargar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}
   if(!usuario) return <Login onLogin={login}/>;
   const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",config:"Configuración",historial_completo:"Historial"};
   return (
     <div style={{minHeight:"100vh",background:C.gris}}>
       <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={logout}/>
       <div style={{maxWidth:600,margin:"0 auto"}}>
-        {vista==="dashboard"&&<Dashboard usuario={usuario} ordenes={ordenes} notifs={notifs} setVista={setVista} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial();}}/>}
+        {vista==="dashboard"&&<Dashboard usuario={usuario} ordenes={ordenes} notifs={notifs} setVista={setVista} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}}/>}
         {vista==="nueva_orden"&&<NuevaOrden usuario={usuario} onDone={refrescar} oe={oe}/>}
         {vista==="ordenes"&&!selec&&<ListaOrdenes ordenes={ordenes} onSel={o=>setSelec(o)} loading={loading}/>}
         {vista==="ordenes"&&selec&&<DetalleOrden orden={selec} usuario={usuario} onVolver={()=>setSelec(null)} onRefrescar={soloRecargar} onEditar={o=>{setOe(o);setSelec(null);setVista("nueva_orden");}}/>}
         {vista==="agenda"&&<Agenda ordenes={ordenes}/>}
         {vista==="config"&&<Config usuario={usuario} onLogout={logout} historial={historial} onVerHistorial={()=>setVista("historial_completo")}/>}
-        {vista==="historial_completo"&&<HistorialCompleto onVolver={()=>setVista("config")}/>}
+        {vista==="historial_completo"&&<HistorialCompleto usuario={usuario} onVolver={()=>setVista("config")}/>}
       </div>
       <Nav vista={vista} setVista={v=>{setOe(null);setVista(v);setSelec(null);}} notifs={notifs.length}/>
     </div>
