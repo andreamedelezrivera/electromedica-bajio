@@ -184,12 +184,13 @@ function Header({titulo,usuario,onLogout}){
 
 function Nav({vista,setVista,notifs}){
   const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"nueva_orden",ico:"➕",lbl:"Nueva"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"config",ico:"⚙️",lbl:"Config"}];
+  const vistaActiva=vista==="historial_completo"?"config":vista;
   return (
     <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.marino,display:"flex",zIndex:200,borderTop:`2px solid ${C.cielo}`}}>
       {items.map(it=>(
-        <div key={it.id} onClick={()=>setVista(it.id)} style={{flex:1,padding:"10px 4px",textAlign:"center",cursor:"pointer",borderTop:vista===it.id?`3px solid ${C.amarillo}`:"3px solid transparent"}}>
+        <div key={it.id} onClick={()=>setVista(it.id)} style={{flex:1,padding:"10px 4px",textAlign:"center",cursor:"pointer",borderTop:vistaActiva===it.id?`3px solid ${C.amarillo}`:"3px solid transparent"}}>
           <div style={{fontSize:20}}>{it.ico}</div>
-          <div style={{fontSize:10,color:vista===it.id?C.amarillo:"rgba(255,255,255,0.7)",fontWeight:vista===it.id?700:400}}>
+          <div style={{fontSize:10,color:vistaActiva===it.id?C.amarillo:"rgba(255,255,255,0.7)",fontWeight:vistaActiva===it.id?700:400}}>
             {it.lbl}{it.id==="dashboard"&&notifs>0&&<span style={{background:C.error,color:"#fff",borderRadius:10,padding:"0 4px",fontSize:9,marginLeft:2}}>{notifs}</span>}
           </div>
         </div>
@@ -786,7 +787,7 @@ function Agenda({ordenes}){
   );
 }
 
-function Config({usuario,onLogout,historial}){
+function Config({usuario,onLogout,historial,onVerHistorial}){
   const [users,setUsers]=useState(USUARIOS);
   const [editando,setEditando]=useState(null);
   const [nuevoPin,setNuevoPin]=useState("");
@@ -911,12 +912,13 @@ function Config({usuario,onLogout,historial}){
       <Card>
         <div style={{fontWeight:700,color:C.marino,marginBottom:12}}>📜 Historial de Notificaciones</div>
         {historial&&historial.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin notificaciones en el historial.</div>}
-        {historial&&historial.map((n,i)=>(
-          <div key={i} style={{fontSize:12,color:C.texto,padding:"6px 0",borderBottom:`1px solid ${C.borde}`}}>
+        {historial&&historial.slice(0,5).map((n,i)=>(
+          <div key={n.id||i} style={{fontSize:12,color:C.texto,padding:"6px 0",borderBottom:`1px solid ${C.borde}`}}>
             <div style={{color:"#aaa",fontSize:11,marginBottom:2}}>{new Date(n.fecha).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"})}</div>
             {n.mensaje.includes("|")?n.mensaje.split("|")[2]:n.mensaje}
           </div>
         ))}
+        {historial&&historial.length>0&&<div style={{marginTop:8,textAlign:"center"}}><span onClick={onVerHistorial} style={{fontSize:13,cursor:"pointer",color:C.cielo,fontWeight:700}}>Ver más →</span></div>}
       </Card>
       <Card>
         <div style={{fontWeight:700,color:C.marino,marginBottom:12}}>Empresa</div>
@@ -925,6 +927,54 @@ function Config({usuario,onLogout,historial}){
         <div style={{fontSize:13,color:C.texto}}>C.P. 76903, Querétaro, Qro.</div>
       </Card>
       <Btn ch="⬅ Cerrar Sesión" onClick={onLogout} color={C.error} out full/>
+    </div>
+  );
+}
+
+function HistorialCompleto({onVolver}){
+  const porPagina=15;
+  const [pagina,setPagina]=useState(1);
+  const [items,setItems]=useState([]);
+  const [total,setTotal]=useState(0);
+  const [loading,setLoading]=useState(true);
+  useEffect(()=>{
+    let activo=true;
+    setLoading(true);
+    (async()=>{
+      const desde=(pagina-1)*porPagina;
+      const hasta=desde+porPagina-1;
+      const {data,count}=await sb.from("notificaciones").select("*",{count:"exact"}).eq("leida_historial",true).order("fecha",{ascending:false}).range(desde,hasta);
+      if(!activo)return;
+      setItems(data||[]);
+      if(typeof count==="number")setTotal(count);
+      setLoading(false);
+    })();
+    return ()=>{activo=false;};
+  },[pagina]);
+  const totalPaginas=Math.max(1,Math.ceil(total/porPagina));
+  return (
+    <div style={{padding:16,paddingBottom:80}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <span onClick={onVolver} style={{cursor:"pointer",color:C.marino,fontWeight:700,fontSize:14}}>⬅ Volver</span>
+        <div style={{color:C.marino,fontWeight:800,fontSize:18}}>📜 Historial de Notificaciones</div>
+      </div>
+      <Card>
+        {loading&&<div style={{fontSize:13,color:"#aaa"}}>Cargando...</div>}
+        {!loading&&items.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin notificaciones en el historial.</div>}
+        {!loading&&items.map((n,i)=>(
+          <div key={n.id||i} style={{fontSize:13,color:C.texto,padding:"8px 0",borderBottom:`1px solid ${C.borde}`}}>
+            <div style={{color:"#aaa",fontSize:11,marginBottom:2}}>{new Date(n.fecha).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"})}</div>
+            {n.mensaje.includes("|")?n.mensaje.split("|")[2]:n.mensaje}
+          </div>
+        ))}
+      </Card>
+      {totalPaginas>1&&(
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+          <Btn ch="← Anterior" onClick={()=>setPagina(p=>Math.max(1,p-1))} color={C.marino} out sm dis={pagina<=1||loading}/>
+          <div style={{fontSize:13,color:C.texto,fontWeight:600}}>Página {pagina} de {totalPaginas}</div>
+          <Btn ch="Siguiente →" onClick={()=>setPagina(p=>Math.min(totalPaginas,p+1))} color={C.marino} out sm dis={pagina>=totalPaginas||loading}/>
+        </div>
+      )}
     </div>
   );
 }
@@ -946,7 +996,7 @@ function App(){
     if(data)setNotifs(data);
   }
   async function cargarHistorial(){
-    const {data}=await sb.from("notificaciones").select("*").eq("leida_historial",true).order("fecha",{ascending:false}).limit(50);
+    const {data}=await sb.from("notificaciones").select("*").eq("leida_historial",true).order("fecha",{ascending:false}).limit(5);
     if(data)setHistorial(data);
   }
   useEffect(()=>{if(usuario){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial();}},[usuario]);
@@ -955,7 +1005,7 @@ function App(){
   function refrescar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial();setSelec(null);setVista("ordenes");}
   function soloRecargar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial();}
   if(!usuario) return <Login onLogin={login}/>;
-  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",config:"Configuración"};
+  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",config:"Configuración",historial_completo:"Historial"};
   return (
     <div style={{minHeight:"100vh",background:C.gris}}>
       <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={logout}/>
@@ -965,7 +1015,8 @@ function App(){
         {vista==="ordenes"&&!selec&&<ListaOrdenes ordenes={ordenes} onSel={o=>setSelec(o)} loading={loading}/>}
         {vista==="ordenes"&&selec&&<DetalleOrden orden={selec} usuario={usuario} onVolver={()=>setSelec(null)} onRefrescar={soloRecargar} onEditar={o=>{setOe(o);setSelec(null);setVista("nueva_orden");}}/>}
         {vista==="agenda"&&<Agenda ordenes={ordenes}/>}
-        {vista==="config"&&<Config usuario={usuario} onLogout={logout} historial={historial}/>}
+        {vista==="config"&&<Config usuario={usuario} onLogout={logout} historial={historial} onVerHistorial={()=>setVista("historial_completo")}/>}
+        {vista==="historial_completo"&&<HistorialCompleto onVolver={()=>setVista("config")}/>}
       </div>
       <Nav vista={vista} setVista={v=>{setOe(null);setVista(v);setSelec(null);}} notifs={notifs.length}/>
     </div>
