@@ -101,6 +101,17 @@ function aplicarFiltroCategoria(q,cat){
   if(cat==="generacion")return q.not("mensaje","ilike","%eliminada por%").not("mensaje","ilike","%SOLICITUD%").not("mensaje","ilike","%Tu solicitud para editar%");
   return q;
 }
+async function idsOcultosPara(uid){
+  const {data}=await sb.from("notificaciones_ocultas").select("notificacion_id").eq("usuario_id",uid);
+  return (data||[]).map(r=>r.notificacion_id);
+}
+function excluirOcultas(q,idsOcultos){
+  if(!idsOcultos||idsOcultos.length===0)return q;
+  return q.not("id","in",`(${idsOcultos.join(",")})`);
+}
+async function ocultarNotif(notifId,uid){
+  return sb.from("notificaciones_ocultas").insert({notificacion_id:notifId,usuario_id:uid});
+}
 async function sigFolio(){
   const {data}=await sb.from("ordenes").select("folio").order("id",{ascending:false}).limit(1);
   const u=data&&data.length>0?parseInt(data[0].folio)||0:0;
@@ -236,7 +247,7 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
   }
 
   async function eliminarNotif(id){
-    await sb.from("notificaciones").delete().eq("id",id);
+    await ocultarNotif(id,usuario.id);
     recargarNotifs();
   }
 
@@ -280,7 +291,6 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
         const folio=esSolicitud?partes[1]:"";
         const uidSol=esSolicitud?parseInt(partes[2]):null;
         const textoMostrar=esSolicitud?partes[3]:n.mensaje;
-        const puedeEliminar=usuario.rol==="admin"||n.para_usuario_id===usuario.id;
         return (
           <div key={i} style={{fontSize:13,color:"#5D4E00",padding:"10px 0",borderBottom:"1px solid rgba(0,0,0,0.08)"}}>
             <div style={{marginBottom:8}}>{textoMostrar}</div>
@@ -294,9 +304,7 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
               {!esSolicitud&&(
                 <button onClick={()=>marcarLeida(n.id)} style={{fontSize:11,cursor:"pointer",color:"#fff",background:"#7D6608",border:"none",borderRadius:6,padding:"3px 10px",fontWeight:700}}>✓ Marcar como leída</button>
               )}
-              {puedeEliminar&&(
-                <button onClick={()=>eliminarNotif(n.id)} style={{fontSize:11,cursor:"pointer",color:"#7D6608",background:"transparent",border:"none",fontWeight:700}}>🗑️ Eliminar</button>
-              )}
+              <button onClick={()=>eliminarNotif(n.id)} style={{fontSize:11,cursor:"pointer",color:"#7D6608",background:"transparent",border:"none",fontWeight:700}}>🗑️ Eliminar (solo de mi vista)</button>
             </div>
           </div>
         );
@@ -980,11 +988,13 @@ function HistorialCompleto({usuario,onVolver}){
     let activo=true;
     setLoading(true);
     (async()=>{
+      const ocultos=await idsOcultosPara(usuario.id);
       const desde=(pagina-1)*porPagina;
       const hasta=desde+porPagina-1;
       let q=sb.from("notificaciones").select("*",{count:"exact"}).eq("leida_historial",true);
       if(usuario.rol==="ingeniero") q=q.eq("para_usuario_id",usuario.id);
       if(usuario.rol==="admin") q=aplicarFiltroCategoria(q,filtro);
+      q=excluirOcultas(q,ocultos);
       q=q.order("fecha",{ascending:false}).range(desde,hasta);
       const {data,count}=await q;
       if(!activo)return;
@@ -996,23 +1006,28 @@ function HistorialCompleto({usuario,onVolver}){
   },[pagina,filtro,usuario.id,usuario.rol]);
   const totalPaginas=Math.max(1,Math.ceil(total/porPagina));
   async function eliminarNotif(id){
-    await sb.from("notificaciones").delete().eq("id",id);
+    await ocultarNotif(id,usuario.id);
     setItems(prev=>prev.filter(n=>n.id!==id));
     setTotal(t=>Math.max(0,t-1));
   }
   async function borrarTodas(){
     setBorrandoTodas(true);
-    let q=sb.from("notificaciones").delete().eq("leida_historial",true);
+    const ocultos=await idsOcultosPara(usuario.id);
+    let q=sb.from("notificaciones").select("id").eq("leida_historial",true);
     if(usuario.rol==="ingeniero") q=q.eq("para_usuario_id",usuario.id);
-    else if(usuario.rol==="admin"&&filtro!=="todas") q=aplicarFiltroCategoria(q,filtro);
-    await q;
+    if(usuario.rol==="admin"&&filtro!=="todas") q=aplicarFiltroCategoria(q,filtro);
+    q=excluirOcultas(q,ocultos);
+    const {data}=await q;
+    const idsAOcultar=(data||[]).map(r=>r.id);
+    if(idsAOcultar.length>0){
+      await sb.from("notificaciones_ocultas").insert(idsAOcultar.map(id=>({notificacion_id:id,usuario_id:usuario.id})));
+    }
     setConfirmBorrarTodas(false);
     setBorrandoTodas(false);
     setItems([]);
     setTotal(0);
     setPagina(1);
   }
-  const puedeBorrarTodas=usuario.rol==="admin"||usuario.rol==="ingeniero";
   return (
     <div style={{padding:16,paddingBottom:80}}>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
@@ -1029,18 +1044,15 @@ function HistorialCompleto({usuario,onVolver}){
       <Card>
         {loading&&<div style={{fontSize:13,color:"#aaa"}}>Cargando...</div>}
         {!loading&&items.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin notificaciones en esta categoría.</div>}
-        {!loading&&items.map((n,i)=>{
-          const puedeEliminar=usuario.rol==="admin"||n.para_usuario_id===usuario.id;
-          return (
-            <div key={n.id||i} style={{fontSize:13,color:C.texto,padding:"8px 0",borderBottom:`1px solid ${C.borde}`}}>
-              <div style={{color:"#aaa",fontSize:11,marginBottom:2}}>{new Date(n.fecha).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"})}</div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                <div>{n.mensaje.includes("|")?n.mensaje.split("|").pop():n.mensaje}</div>
-                {puedeEliminar&&<span onClick={()=>eliminarNotif(n.id)} style={{cursor:"pointer",color:C.error,fontSize:13,flexShrink:0}}>🗑️</span>}
-              </div>
+        {!loading&&items.map((n,i)=>(
+          <div key={n.id||i} style={{fontSize:13,color:C.texto,padding:"8px 0",borderBottom:`1px solid ${C.borde}`}}>
+            <div style={{color:"#aaa",fontSize:11,marginBottom:2}}>{new Date(n.fecha).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"})}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+              <div>{n.mensaje.includes("|")?n.mensaje.split("|").pop():n.mensaje}</div>
+              <span onClick={()=>eliminarNotif(n.id)} style={{cursor:"pointer",color:C.error,fontSize:13,flexShrink:0}}>🗑️</span>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </Card>
       {totalPaginas>1&&(
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4,marginBottom:12}}>
@@ -1049,20 +1061,20 @@ function HistorialCompleto({usuario,onVolver}){
           <Btn ch="Siguiente →" onClick={()=>setPagina(p=>Math.min(totalPaginas,p+1))} color={C.marino} out sm dis={pagina>=totalPaginas||loading}/>
         </div>
       )}
-      {puedeBorrarTodas&&total>0&&!confirmBorrarTodas&&(
+      {total>0&&!confirmBorrarTodas&&(
         <div style={{textAlign:"center"}}>
           <span onClick={()=>setConfirmBorrarTodas(true)} style={{fontSize:12,cursor:"pointer",color:C.error,fontWeight:700}}>
-            🗑️ Borrar {usuario.rol==="admin"?(filtro==="todas"?"todo el historial":`categoría "${CATEGORIAS_NOTIF.find(c=>c.id===filtro)?.lbl}"`):"todo mi historial"}
+            🗑️ Borrar {usuario.rol==="admin"&&filtro!=="todas"?`categoría "${CATEGORIAS_NOTIF.find(c=>c.id===filtro)?.lbl}" de mi vista`:"todo mi historial (mi vista)"}
           </span>
         </div>
       )}
       {confirmBorrarTodas&&(
         <Card style={{border:`2px solid ${C.error}`}}>
           <div style={{fontSize:13,color:C.texto,marginBottom:12,fontWeight:600}}>
-            Esta acción no se puede deshacer. ¿Confirmas borrar {usuario.rol==="admin"?(filtro==="todas"?"TODO el historial":`todo el historial de "${CATEGORIAS_NOTIF.find(c=>c.id===filtro)?.lbl}"`):"todo tu historial"}?
+            Esto solo lo oculta de tu propia vista — el registro se conserva para el respaldo general. ¿Confirmas ocultar {usuario.rol==="admin"&&filtro!=="todas"?`todo el historial de "${CATEGORIAS_NOTIF.find(c=>c.id===filtro)?.lbl}"`:"todo tu historial"}?
           </div>
           <div style={{display:"flex",gap:8}}>
-            <Btn ch={borrandoTodas?"Borrando...":"Sí, borrar"} onClick={borrarTodas} color={C.error} sm dis={borrandoTodas}/>
+            <Btn ch={borrandoTodas?"Ocultando...":"Sí, ocultar"} onClick={borrarTodas} color={C.error} sm dis={borrandoTodas}/>
             <Btn ch="Cancelar" onClick={()=>setConfirmBorrarTodas(false)} color={C.texto} out sm dis={borrandoTodas}/>
           </div>
         </Card>
@@ -1082,14 +1094,18 @@ function App(){
   const [historial,setHistorial]=useState([]);
   async function cargarOrdenes(){setLoading(true);const {data}=await sb.from("ordenes").select("*").order("id",{ascending:false});if(data)setOrdenes(data);setLoading(false);}
   async function cargarNotifs(rol,uid){
+    const ocultos=await idsOcultosPara(uid);
     let q=sb.from("notificaciones").select("*").eq("leida",false).eq("leida_historial",false).order("fecha",{ascending:false});
     if(rol==="ingeniero") q=q.eq("para_usuario_id",uid);
+    q=excluirOcultas(q,ocultos);
     const {data}=await q;
     if(data)setNotifs(data);
   }
   async function cargarHistorial(rol,uid){
+    const ocultos=await idsOcultosPara(uid);
     let q=sb.from("notificaciones").select("*").eq("leida_historial",true).order("fecha",{ascending:false}).limit(5);
     if(rol==="ingeniero") q=q.eq("para_usuario_id",uid);
+    q=excluirOcultas(q,ocultos);
     const {data}=await q;
     if(data)setHistorial(data);
   }
