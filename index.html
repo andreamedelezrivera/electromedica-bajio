@@ -87,6 +87,11 @@ const ITEMS={
   "Pruebas de Funcionamiento Final":["Prueba de exposición completa con fantoma","Verificación de calidad de imagen diagnóstica","Prueba de repetibilidad de exposición","Verificación de todos los movimientos mecánicos","Comprobación de indicadores de radiación","Prueba de dispositivos de seguridad y paro de emergencia","Limpieza general final del equipo","Registro de lecturas finales de kV","Registro de lecturas finales de mA","Registro de lecturas finales de tiempo de exposición"],
 };
 function getItems(s){return ITEMS[s]||[`Revisión general de ${s}`,`Limpieza de ${s}`,`Verificación de conectores de ${s}`,`Prueba de funcionamiento de ${s}`];}
+function comoArray(v){
+  if(Array.isArray(v))return v;
+  if(typeof v==="string"&&v){try{const p=JSON.parse(v);return Array.isArray(p)?p:[];}catch(e){return [];}}
+  return [];
+}
 function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"});}
 function obtenerUbicacion(){
   return new Promise(resolve=>{
@@ -169,6 +174,48 @@ function Badge({tipo}){
   return <span style={{background:s.bg,color:s.col,borderRadius:12,padding:"2px 10px",fontSize:12,fontWeight:700}}>{s.lb}</span>;
 }
 
+function FirmaPad({canvasRef,onDibujar}){
+  const dibujando=useRef(false);
+  function pos(e){
+    const canvas=canvasRef.current;
+    const rect=canvas.getBoundingClientRect();
+    const cx=e.touches?e.touches[0].clientX:e.clientX;
+    const cy=e.touches?e.touches[0].clientY:e.clientY;
+    return {x:(cx-rect.left)*(canvas.width/rect.width),y:(cy-rect.top)*(canvas.height/rect.height)};
+  }
+  function iniciar(e){
+    e.preventDefault();
+    dibujando.current=true;
+    const {x,y}=pos(e);
+    const ctx=canvasRef.current.getContext("2d");
+    ctx.beginPath();ctx.moveTo(x,y);
+  }
+  function mover(e){
+    if(!dibujando.current)return;
+    e.preventDefault();
+    const {x,y}=pos(e);
+    const ctx=canvasRef.current.getContext("2d");
+    ctx.lineTo(x,y);ctx.strokeStyle=C.marino;ctx.lineWidth=2.2;ctx.lineCap="round";ctx.lineJoin="round";ctx.stroke();
+    onDibujar&&onDibujar(true);
+  }
+  function terminar(){dibujando.current=false;}
+  function limpiar(){
+    const canvas=canvasRef.current;
+    canvas.getContext("2d").clearRect(0,0,canvas.width,canvas.height);
+    onDibujar&&onDibujar(false);
+  }
+  return (
+    <div>
+      <canvas ref={canvasRef} width={300} height={130} style={{width:"100%",height:130,background:"#fff",border:`2px dashed ${C.borde}`,borderRadius:8,touchAction:"none",cursor:"crosshair"}}
+        onMouseDown={iniciar} onMouseMove={mover} onMouseUp={terminar} onMouseLeave={terminar}
+        onTouchStart={iniciar} onTouchMove={mover} onTouchEnd={terminar}/>
+      <div style={{textAlign:"right",marginTop:4}}>
+        <span onClick={limpiar} style={{fontSize:12,color:C.error,cursor:"pointer",fontWeight:700}}>🗑️ Limpiar firma</span>
+      </div>
+    </div>
+  );
+}
+
 function Login({onLogin}){
   const [u,setU]=useState("");
   const [p,setP]=useState("");
@@ -245,6 +292,15 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
     const {id,folio,accion,solicitante,uidSol}=confirm;
     const aprobada=accion==="aprobar";
     await sb.from("solicitudes_edicion").update({estado:aprobada?"aprobada":"rechazada"}).eq("orden_folio",folio).eq("estado","pendiente");
+    if(aprobada){
+      const {data:ordenData}=await sb.from("ordenes").select("id,colaboradores").eq("folio",folio).maybeSingle();
+      if(ordenData){
+        const actuales=comoArray(ordenData.colaboradores);
+        if(!actuales.includes(uidSol)){
+          await sb.from("ordenes").update({colaboradores:[...actuales,uidSol]}).eq("id",ordenData.id);
+        }
+      }
+    }
     await sb.from("notificaciones").insert({
       mensaje:aprobada?`✅ Tu solicitud para editar Orden #${folio} fue APROBADA`:`❌ Tu solicitud para editar Orden #${folio} fue RECHAZADA`,
       para_usuario_id:uidSol,
@@ -301,15 +357,17 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
       {notifsFiltrados.length===0&&<div style={{fontSize:13,color:"#8a7500"}}>Sin notificaciones en esta categoría.</div>}
       {notifsFiltrados.map((n,i)=>{
         const partes=n.mensaje.split("|");
-        const esSolicitud=partes[0]==="🔔 SOLICITUD" && partes.length>=4;
+        const esSolicitud=partes[0]==="🔔 SOLICITUD" && partes.length>=5;
         const folio=esSolicitud?partes[1]:"";
         const uidSol=esSolicitud?parseInt(partes[2]):null;
-        const textoMostrar=esSolicitud?partes[3]:n.mensaje;
+        const uidCreador=esSolicitud?parseInt(partes[3]):null;
+        const textoMostrar=esSolicitud?partes[4]:n.mensaje;
+        const puedeDecidir=usuario.rol==="admin"||usuario.id===uidCreador;
         return (
           <div key={i} style={{fontSize:13,color:"#5D4E00",padding:"10px 0",borderBottom:"1px solid rgba(0,0,0,0.08)"}}>
             <div style={{marginBottom:8}}>{textoMostrar}</div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              {esSolicitud&&usuario.rol==="admin"&&(
+              {esSolicitud&&puedeDecidir&&(
                 <>
                   <button onClick={()=>setConfirm({id:n.id,folio,accion:"aprobar",solicitante:textoMostrar,uidSol})} style={{fontSize:12,cursor:"pointer",color:"#fff",background:C.exito,border:"none",borderRadius:6,padding:"6px 16px",fontWeight:700}}>✅ Aprobar</button>
                   <button onClick={()=>setConfirm({id:n.id,folio,accion:"rechazar",solicitante:textoMostrar,uidSol})} style={{fontSize:12,cursor:"pointer",color:"#fff",background:C.error,border:"none",borderRadius:6,padding:"6px 16px",fontWeight:700}}>❌ Rechazar</button>
@@ -394,15 +452,26 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
   const [saving,setSaving]=useState(false);
   const [err,setErr]=useState("");
   const guardadoOkRef=useRef(false);
+  const firmaCanvasRef=useRef(null);
+  const [firmaDibujada,setFirmaDibujada]=useState(!!oe?.firma_imagen);
+  const [firmaTocada,setFirmaTocada]=useState(false);
   const [o,setO]=useState({
     cliente_nombre:oe?.cliente_nombre||"",cliente_dir:oe?.cliente_dir||"",
     cliente_ciudad:oe?.cliente_ciudad||"",cliente_tel:oe?.cliente_tel||"",
     tipo_servicio:oe?.equipo_tipo?.replace("GENERAL: ","")||"",
     equipo:oe?.equipo||"",
     descripcion:oe?.lev_obs||"",materiales:oe?.corr_descripcion||"",
+    firma_nombre:oe?.firma_nombre||"",
     envio_wa:oe?.envio_wa||"",envio_email:oe?.envio_email||""
   });
   useEffect(()=>{if(!oe)sigFolio().then(setFolio);},[]);
+  useEffect(()=>{
+    if(oe?.firma_imagen&&firmaCanvasRef.current){
+      const img=new Image();
+      img.onload=()=>{firmaCanvasRef.current.getContext("2d").drawImage(img,0,0,firmaCanvasRef.current.width,firmaCanvasRef.current.height);};
+      img.src=oe.firma_imagen;
+    }
+  },[]);
   useEffect(()=>{
     if(!oe||oe.estado==="completada")return;
     const estadoOriginal=oe.estado;
@@ -417,9 +486,11 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
   async function guardar(estado){
     setSaving(true);
     const ubicacion=await obtenerUbicacion();
+    const firma_imagen=!firmaTocada?(oe?.firma_imagen||null):(firmaDibujada&&firmaCanvasRef.current?firmaCanvasRef.current.toDataURL("image/png"):null);
     const datos={folio,estado,creado_por:usuario.id,fecha_guardado:new Date().toISOString(),ubicacion,
       cliente_nombre:o.cliente_nombre,cliente_dir:o.cliente_dir,cliente_ciudad:o.cliente_ciudad,cliente_tel:o.cliente_tel,
       equipo_tipo:`GENERAL: ${o.tipo_servicio}`,equipo:o.equipo,lev_obs:o.descripcion,corr_descripcion:o.materiales,
+      firma_nombre:o.firma_nombre,firma_imagen,
       envio_wa:o.envio_wa,envio_email:o.envio_email};
     if(oe){await sb.from("ordenes").update(datos).eq("id",oe.id);}
     else{await sb.from("ordenes").insert(datos);}
@@ -455,7 +526,10 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
       </Card>
       <Card style={{background:C.amarillo,border:`1px solid #F0CA00`}}>
         <div style={{fontWeight:800,color:"#7D6608",marginBottom:12}}>✍️ Firma y Envío</div>
-        <div style={{background:"#fff",borderRadius:8,padding:16,marginBottom:16,textAlign:"center",color:"#aaa",height:80,display:"flex",alignItems:"center",justifyContent:"center",border:`2px dashed ${C.borde}`}}>Firma digital — próximamente</div>
+        <Inp lbl="Nombre de quien firma" val={o.firma_nombre} set={v=>upd("firma_nombre",v)} ph="Nombre de quien recibe/firma el servicio"/>
+        <div style={{marginBottom:16}}>
+          <FirmaPad canvasRef={firmaCanvasRef} onDibujar={v=>{setFirmaDibujada(v);setFirmaTocada(true);setSucia&&setSucia(true);}}/>
+        </div>
         <Inp lbl="📱 WhatsApp del cliente" val={o.envio_wa} set={v=>upd("envio_wa",v)} ph="10 dígitos" num/>
         <Inp lbl="✉️ Correo del cliente" val={o.envio_email} set={v=>upd("envio_email",v)} ph="correo@ejemplo.com" type="email"/>
         {err&&<div style={{color:C.error,fontSize:13,marginBottom:10,padding:"8px 12px",background:"#fdecea",borderRadius:8}}>{err}</div>}
@@ -474,19 +548,30 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
   const [saving,setSaving]=useState(false);
   const [errEnvio,setErrEnvio]=useState("");
   const guardadoOkRef=useRef(false);
+  const firmaCanvasRef=useRef(null);
+  const [firmaDibujada,setFirmaDibujada]=useState(!!oe?.firma_imagen);
+  const [firmaTocada,setFirmaTocada]=useState(false);
   const [o,setO]=useState({
     cliente_nombre:oe?.cliente_nombre||"",cliente_dir:oe?.cliente_dir||"",
     cliente_ciudad:oe?.cliente_ciudad||"",cliente_tel:oe?.cliente_tel||"",
     equipo_tipo:oe?.equipo_tipo||"",equipo_marca:oe?.equipo_marca||"",
     equipo_modelo:oe?.equipo_modelo||"",equipo_serie:oe?.equipo_serie||"",
-    lev_obs:oe?.lev_obs||"",
+    lev_obs:oe?.lev_obs||"",fotos:comoArray(oe?.fotos),
     prev_realiza:oe?.prev_realiza??null,prev_checklist:oe?.prev_checklist||{},
     prev_comentarios:oe?.prev_comentarios||"",prev_proximo:oe?.prev_proximo||"",
     corr_realiza:oe?.corr_realiza??null,corr_descripcion:oe?.corr_descripcion||"",
     corr_refacciones:oe?.corr_refacciones||"",
+    firma_nombre:oe?.firma_nombre||"",
     envio_wa:oe?.envio_wa||"",envio_email:oe?.envio_email||""
   });
   useEffect(()=>{if(!oe)sigFolio().then(setFolio);},[]);
+  useEffect(()=>{
+    if(oe?.firma_imagen&&firmaCanvasRef.current){
+      const img=new Image();
+      img.onload=()=>{firmaCanvasRef.current.getContext("2d").drawImage(img,0,0,firmaCanvasRef.current.width,firmaCanvasRef.current.height);};
+      img.src=oe.firma_imagen;
+    }
+  },[paso]);
   useEffect(()=>{
     if(!oe||oe.estado==="completada")return;
     const estadoOriginal=oe.estado;
@@ -498,11 +583,35 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     };
   },[]);
   function upd(k,v){setO(p=>({...p,[k]:v}));setSucia&&setSucia(true);}
+  function agregarFoto(base64){setO(p=>({...p,fotos:[...(p.fotos||[]),base64]}));setSucia&&setSucia(true);}
+  function quitarFoto(idx){setO(p=>({...p,fotos:(p.fotos||[]).filter((_,i)=>i!==idx)}));setSucia&&setSucia(true);}
+  function manejarFotos(e){
+    const files=Array.from(e.target.files||[]);
+    files.forEach(file=>{
+      const reader=new FileReader();
+      reader.onload=ev=>{
+        const img=new Image();
+        img.onload=()=>{
+          const maxW=800;
+          const escala=Math.min(1,maxW/img.width);
+          const w=Math.round(img.width*escala),h=Math.round(img.height*escala);
+          const canvas=document.createElement("canvas");
+          canvas.width=w;canvas.height=h;
+          canvas.getContext("2d").drawImage(img,0,0,w,h);
+          agregarFoto(canvas.toDataURL("image/jpeg",0.7));
+        };
+        img.src=ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value="";
+  }
   const secs=EQUIPOS[o.equipo_tipo]||[];
   async function guardar(estado){
     setSaving(true);
     const ubicacion=await obtenerUbicacion();
-    const datos={folio,estado,creado_por:usuario.id,fecha_guardado:new Date().toISOString(),ubicacion,...o};
+    const firma_imagen=!firmaTocada?(oe?.firma_imagen||null):(firmaDibujada&&firmaCanvasRef.current?firmaCanvasRef.current.toDataURL("image/png"):null);
+    const datos={folio,estado,creado_por:usuario.id,fecha_guardado:new Date().toISOString(),ubicacion,...o,firma_imagen};
     if(oe){await sb.from("ordenes").update(datos).eq("id",oe.id);}
     else{await sb.from("ordenes").insert(datos);}
     guardadoOkRef.current=true;
@@ -550,7 +659,21 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
               <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:12}}>📋 Levantamiento de Equipo</div>
               <div style={{background:C.gris,borderRadius:8,padding:12,marginBottom:14,fontSize:13,color:C.texto}}>📅 {ahora()} | 👤 {usuario.nombre}</div>
               <TA lbl="Observaciones y fallas detectadas" val={o.lev_obs} set={v=>upd("lev_obs",v)} ph="Estado general del equipo, fallas visibles..."/>
-              <div style={{background:C.gris,border:`2px dashed ${C.borde}`,borderRadius:8,padding:20,textAlign:"center",color:"#aaa",fontSize:13}}>📸 Fotos — próximamente</div>
+              <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>📸 Fotos del equipo</div>
+              <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
+                📷 Tomar / subir foto
+                <input type="file" accept="image/*" capture="environment" multiple onChange={manejarFotos} style={{display:"none"}}/>
+              </label>
+              {o.fotos?.length>0&&(
+                <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
+                  {o.fotos.map((f,i)=>(
+                    <div key={i} style={{position:"relative"}}>
+                      <img src={f} style={{width:72,height:72,objectFit:"cover",borderRadius:8,border:`1px solid ${C.borde}`}}/>
+                      <span onClick={()=>quitarFoto(i)} style={{position:"absolute",top:-6,right:-6,background:C.error,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer",fontWeight:700}}>×</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </Card>
             <div style={{display:"flex",justifyContent:"space-between"}}>
               <Btn ch="← Anterior" onClick={()=>setPaso(0)} color={C.texto} out sm/>
@@ -607,7 +730,10 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
             {o.corr_realiza!==null&&(
               <Card style={{background:C.amarillo,border:`1px solid #F0CA00`}}>
                 <div style={{fontWeight:800,color:"#7D6608",marginBottom:12}}>✍️ Firma y Cierre</div>
-                <div style={{background:"#fff",borderRadius:8,padding:16,marginBottom:16,textAlign:"center",color:"#aaa",height:80,display:"flex",alignItems:"center",justifyContent:"center",border:`2px dashed ${C.borde}`}}>Firma digital — próximamente</div>
+                <Inp lbl="Nombre de quien firma" val={o.firma_nombre} set={v=>upd("firma_nombre",v)} ph="Nombre de quien recibe/firma el servicio"/>
+                <div style={{marginBottom:16}}>
+                  <FirmaPad canvasRef={firmaCanvasRef} onDibujar={v=>{setFirmaDibujada(v);setFirmaTocada(true);setSucia&&setSucia(true);}}/>
+                </div>
                 <Inp lbl="📱 WhatsApp del cliente" val={o.envio_wa} set={v=>upd("envio_wa",v)} ph="10 dígitos" num/>
                 <Inp lbl="✉️ Correo del cliente" val={o.envio_email} set={v=>upd("envio_email",v)} ph="correo@ejemplo.com" type="email"/>
                 {errEnvio&&<div style={{color:C.error,fontSize:13,marginBottom:10,padding:"8px 12px",background:"#fdecea",borderRadius:8}}>{errEnvio}</div>}
@@ -718,10 +844,13 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
       solicitado_por: usuario.id,
       estado: "pendiente"
     });
-    await sb.from("notificaciones").insert({
-      mensaje:`🔔 SOLICITUD|${orden.folio}|${usuario.id}|${usuario.nombre.split(" ")[0]} solicita permiso para editar Orden #${orden.folio} — ${orden.cliente_nombre}`,
-      para_rol: "admin"
-    });
+    const msg=`🔔 SOLICITUD|${orden.folio}|${usuario.id}|${orden.creado_por}|${usuario.nombre.split(" ")[0]} solicita permiso para editar Orden #${orden.folio} — ${orden.cliente_nombre}`;
+    const notifs=[{mensaje:msg,para_rol:"admin"}];
+    const creadorInfo=USUARIOS.find(u=>u.id===orden.creado_por);
+    if(orden.creado_por&&orden.creado_por!==usuario.id&&creadorInfo?.rol!=="admin"){
+      notifs.push({mensaje:msg,para_usuario_id:orden.creado_por});
+    }
+    await sb.from("notificaciones").insert(notifs);
     setSolicitado(true);
   }
   return (
@@ -760,7 +889,10 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
         <div style={{fontSize:13,color:C.texto}}>{orden.cliente_dir} | {orden.cliente_ciudad}</div>
         <div style={{fontSize:13,color:C.texto}}>Tel: {orden.cliente_tel}</div>
         {orden.ubicacion&&<div style={{marginTop:8}}><a href={`https://maps.google.com/?q=${orden.ubicacion}`} target="_blank" rel="noopener noreferrer" style={{fontSize:13,color:C.cielo,fontWeight:700,textDecoration:"none"}}>📍 Ver ubicación en el mapa</a></div>}
-        <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borde}`,fontSize:12,color:"#aaa"}}>Realizado por: <strong style={{color:C.marino}}>{nombreU(orden.creado_por)}</strong></div>
+        <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.borde}`,fontSize:12,color:"#aaa"}}>
+          Realizado por: <strong style={{color:C.marino}}>{nombreU(orden.creado_por)}</strong>
+          {comoArray(orden.colaboradores).length>0&&<> + <strong style={{color:C.marino}}>{comoArray(orden.colaboradores).map(id=>nombreU(id)).join(", ")}</strong></>}
+        </div>
       </Card>
       <Card>
         <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>🔬 Equipo</div>
@@ -771,6 +903,11 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
       <Card>
         <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>📋 Levantamiento</div>
         <div style={{fontSize:14}}>{orden.lev_obs||"Sin observaciones"}</div>
+        {comoArray(orden.fotos).length>0&&(
+          <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:12}}>
+            {comoArray(orden.fotos).map((f,i)=><img key={i} src={f} style={{width:80,height:80,objectFit:"cover",borderRadius:8,border:`1px solid ${C.borde}`}}/>)}
+          </div>
+        )}
       </Card>
       <Card>
         <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>🔧 Preventivo</div>
@@ -805,6 +942,13 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
         )}
         {orden.corr_realiza===null&&<div style={{color:"#aaa"}}>Pendiente</div>}
       </Card>
+      {(orden.firma_imagen||orden.firma_nombre)&&(
+        <Card>
+          <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>✍️ Firma</div>
+          {orden.firma_nombre&&<div style={{fontSize:13,color:C.texto,marginBottom:8}}>{orden.firma_nombre}</div>}
+          {orden.firma_imagen&&<img src={orden.firma_imagen} style={{maxWidth:200,background:"#fff",border:`1px solid ${C.borde}`,borderRadius:8}}/>}
+        </Card>
+      )}
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         <Btn ch="📄 PDF" onClick={()=>alert("Próximamente")} color={C.cielo} sm/>
         <Btn ch="📱 WhatsApp" onClick={()=>alert("Próximamente")} color={C.exito} sm/>
