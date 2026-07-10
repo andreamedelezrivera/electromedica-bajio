@@ -89,6 +89,8 @@ const ITEMS={
 function getItems(s){return ITEMS[s]||[`Revisión general de ${s}`,`Limpieza de ${s}`,`Verificación de conectores de ${s}`,`Prueba de funcionamiento de ${s}`];}
 function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"});}
 function nombreU(id){return USUARIOS.find(u=>u.id===id)?.nombre||"No especificado";}
+const COLOR_USUARIO={1:"#4A90D9",2:"#27AE60",3:"#E67E22",4:"#9B59B6"};
+function colorU(id){return COLOR_USUARIO[id]||"#7F8C8D";}
 function tipoNotif(mensaje){
   if(mensaje.includes("SOLICITUD")||mensaje.includes("Tu solicitud para editar"))return "solicitud";
   if(mensaje.includes("eliminada por"))return "eliminacion";
@@ -190,10 +192,10 @@ function Login({onLogin}){
   );
 }
 
-function Header({titulo,usuario,onLogout}){
+function Header({titulo,usuario,onLogout,onLogoClick}){
   return (
     <div style={{background:C.marino,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
-      <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,cursor:onLogoClick?"pointer":"default"}} onClick={onLogoClick}>
         <img src={LOGO_DATA} style={{width:36,height:36,objectFit:"cover",borderRadius:"50%",border:"2px solid rgba(255,255,255,0.3)"}}/>
         <div>
           <div style={{color:"#fff",fontWeight:800,fontSize:14}}>{titulo}</div>
@@ -206,7 +208,7 @@ function Header({titulo,usuario,onLogout}){
 }
 
 function Nav({vista,setVista,notifs}){
-  const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"nueva_orden",ico:"➕",lbl:"Nueva"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"config",ico:"⚙️",lbl:"Config"}];
+  const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"config",ico:"⚙️",lbl:"Config"}];
   const vistaActiva=vista==="historial_completo"?"config":vista;
   return (
     <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.marino,display:"flex",zIndex:200,borderTop:`2px solid ${C.cielo}`}}>
@@ -332,13 +334,13 @@ function Dashboard({usuario,ordenes,notifs,setVista,recargarNotifs}){
           </div>
         ))}
       </div>
-      {notifs.length>0&&(
-        <NotifPanel notifs={notifs} usuario={usuario} recargarNotifs={recargarNotifs}/>
-      )}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:notifs.length>0?20:0}}>
         <Btn ch="➕ Nueva Orden" onClick={()=>setVista("nueva_orden")} color={C.marino} full/>
         <Btn ch="📋 Ver Órdenes" onClick={()=>setVista("ordenes")} color={C.cielo} full/>
       </div>
+      {notifs.length>0&&(
+        <NotifPanel notifs={notifs} usuario={usuario} recargarNotifs={recargarNotifs}/>
+      )}
     </div>
   );
 }
@@ -606,13 +608,16 @@ function NuevaOrden({usuario,onDone,oe}){
   return <OrdenMant usuario={usuario} onDone={onDone} onVolver={()=>setTipo(null)} oe={oe}/>;
 }
 
-function ListaOrdenes({ordenes,onSel,loading}){
+function ListaOrdenes({ordenes,onSel,loading,onNueva}){
   const [f,setF]=useState("todas");
   const filt=ordenes.filter(o=>f==="todas"||o.estado===f);
   if(loading) return <div style={{textAlign:"center",padding:40,color:C.texto}}>Cargando...</div>;
   return (
     <div style={{padding:16,paddingBottom:80}}>
-      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:14}}>Órdenes de Servicio</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{color:C.marino,fontWeight:800,fontSize:18}}>Órdenes de Servicio</div>
+        <button onClick={onNueva} style={{width:36,height:36,borderRadius:"50%",background:C.marino,color:"#fff",border:"none",fontSize:20,fontWeight:700,cursor:"pointer",lineHeight:1}}>+</button>
+      </div>
       <div style={{display:"flex",gap:6,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
         {["todas","borrador","en_proceso","completada"].map(x=>(
           <button key={x} onClick={()=>setF(x)} style={{padding:"6px 14px",borderRadius:20,border:`2px solid ${C.marino}`,background:f===x?C.marino:"transparent",color:f===x?"#fff":C.marino,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
@@ -801,7 +806,7 @@ function Agenda({ordenes}){
                 {d&&(
                   <div>
                     <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto",background:hoyF?C.cielo:"transparent",color:sel?"#fff":hoyF?"#fff":C.texto,fontWeight:hoyF||sel?800:400,fontSize:14}}>{d}</div>
-                    {ev&&<div style={{width:6,height:6,borderRadius:"50%",margin:"2px auto 0",background:sel?"#FFF3B0":C.cielo}}/>}
+                    {ev&&<div style={{width:6,height:6,borderRadius:"50%",margin:"2px auto 0",background:sel?"#FFF3B0":colorU(eventos[`${anio}-${mes}-${d}`][0].creado_por)}}/>}
                   </div>
                 )}
               </div>
@@ -815,9 +820,15 @@ function Agenda({ordenes}){
           {eventosDelDia.length===0
             ?<div style={{background:C.blanco,borderRadius:12,padding:20,textAlign:"center",color:C.texto}}>Sin mantenimientos para este día.</div>
             :eventosDelDia.map(o=>(
-              <div key={o.id} style={{background:C.blanco,borderRadius:12,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",borderLeft:`4px solid ${C.cielo}`}}>
-                <div style={{fontWeight:800,color:C.marino}}>Orden #{o.folio}</div>
-                <div style={{fontSize:14,color:C.texto}}>{o.cliente_nombre}</div>
+              <div key={o.id} style={{background:C.blanco,borderRadius:12,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",borderLeft:`4px solid ${colorU(o.creado_por)}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontWeight:800,color:C.marino}}>Orden #{o.folio}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,background:colorU(o.creado_por),borderRadius:14,padding:"3px 10px"}}>
+                    <span style={{width:16,height:16,borderRadius:"50%",background:"rgba(255,255,255,0.35)",color:"#fff",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{o.creado_por}</span>
+                    <span style={{fontSize:11,color:"#fff",fontWeight:700}}>{nombreU(o.creado_por).split(" ")[0]}</span>
+                  </div>
+                </div>
+                <div style={{fontSize:14,color:C.texto,marginTop:4}}>{o.cliente_nombre}</div>
                 <div style={{fontSize:13,color:"#aaa"}}>{o.equipo_tipo} | {o.equipo_marca} {o.equipo_modelo}</div>
                 <div style={{background:C.amarillo,borderRadius:8,padding:8,marginTop:8,fontSize:13,color:"#7D6608"}}>🔧 Mantenimiento Preventivo Programado</div>
               </div>
@@ -841,6 +852,22 @@ function Config({usuario,onLogout,historial,onVerHistorial}){
   const [errorFoto,setErrorFoto]=useState("");
   const [errorPin,setErrorPin]=useState("");
   const [guardandoPin,setGuardandoPin]=useState(false);
+  const [editandoPropio,setEditandoPropio]=useState(false);
+  const [nuevoPinPropio,setNuevoPinPropio]=useState("");
+  const [errorPinPropio,setErrorPinPropio]=useState("");
+  const [okPropio,setOkPropio]=useState(false);
+  const [guardandoPropio,setGuardandoPropio]=useState(false);
+  async function guardarPinPropio(){
+    if(!nuevoPinPropio.trim())return;
+    setGuardandoPropio(true);setErrorPinPropio("");
+    const {error}=await sb.from("usuarios").update({pin:nuevoPinPropio}).eq("id",usuario.id);
+    if(error){
+      setErrorPinPropio("No se pudo guardar el PIN. Intenta de nuevo.");
+    }else{
+      setEditandoPropio(false);setNuevoPinPropio("");setOkPropio(true);setTimeout(()=>setOkPropio(false),2000);
+    }
+    setGuardandoPropio(false);
+  }
   useEffect(()=>{
     (async()=>{
       const {data}=await sb.from("usuarios").select("foto").eq("id",usuario.id).single();
@@ -918,7 +945,20 @@ function Config({usuario,onLogout,historial,onVerHistorial}){
           </div>
         </div>
         <div style={{fontSize:14,marginBottom:4}}><strong>{usuario.nombre}</strong></div>
-        <div style={{fontSize:13,color:C.texto}}>@{usuario.usuario} · {usuario.rol==="admin"?"Administrador":usuario.rol==="supervisor"?"Supervisor":"Ingeniero"}</div>
+        <div style={{fontSize:13,color:C.texto,marginBottom:10}}>@{usuario.usuario} · {usuario.rol==="admin"?"Administrador":usuario.rol==="supervisor"?"Supervisor":"Ingeniero"}</div>
+        {okPropio&&<div style={{background:"#D5F5E3",color:"#1E8449",borderRadius:8,padding:8,marginBottom:10,fontSize:13,fontWeight:700}}>✓ PIN actualizado</div>}
+        {!editandoPropio&&<span onClick={()=>setEditandoPropio(true)} style={{fontSize:12,cursor:"pointer",color:C.cielo,fontWeight:700}}>Cambiar mi PIN</span>}
+        {editandoPropio&&(
+          <div style={{background:C.gris,borderRadius:8,padding:12}}>
+            <div style={{fontSize:13,marginBottom:6,fontWeight:600}}>Nuevo PIN:</div>
+            <input value={nuevoPinPropio} onChange={e=>setNuevoPinPropio(e.target.value)} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:14,outline:"none",marginBottom:8}}/>
+            {errorPinPropio&&<div style={{fontSize:12,color:C.error,marginBottom:8,fontWeight:600}}>{errorPinPropio}</div>}
+            <div style={{display:"flex",gap:8}}>
+              <Btn ch={guardandoPropio?"Guardando...":"✓ Guardar"} onClick={guardarPinPropio} color={C.exito} sm dis={guardandoPropio}/>
+              <Btn ch="Cancelar" onClick={()=>{setEditandoPropio(false);setErrorPinPropio("");setNuevoPinPropio("");}} color={C.texto} out sm dis={guardandoPropio}/>
+            </div>
+          </div>
+        )}
       </Card>
       {usuario.rol==="admin"&&(
         <Card>
@@ -1118,11 +1158,11 @@ function App(){
   const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",config:"Configuración",historial_completo:"Historial"};
   return (
     <div style={{minHeight:"100vh",background:C.gris}}>
-      <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={logout}/>
+      <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={logout} onLogoClick={()=>{setOe(null);setSelec(null);setVista("dashboard");}}/>
       <div style={{maxWidth:600,margin:"0 auto"}}>
         {vista==="dashboard"&&<Dashboard usuario={usuario} ordenes={ordenes} notifs={notifs} setVista={setVista} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}}/>}
         {vista==="nueva_orden"&&<NuevaOrden usuario={usuario} onDone={refrescar} oe={oe}/>}
-        {vista==="ordenes"&&!selec&&<ListaOrdenes ordenes={ordenes} onSel={o=>setSelec(o)} loading={loading}/>}
+        {vista==="ordenes"&&!selec&&<ListaOrdenes ordenes={ordenes} onSel={o=>setSelec(o)} loading={loading} onNueva={()=>{setOe(null);setVista("nueva_orden");}}/>}
         {vista==="ordenes"&&selec&&<DetalleOrden orden={selec} usuario={usuario} onVolver={()=>setSelec(null)} onRefrescar={soloRecargar} onEditar={o=>{setOe(o);setSelec(null);setVista("nueva_orden");}}/>}
         {vista==="agenda"&&<Agenda ordenes={ordenes}/>}
         {vista==="config"&&<Config usuario={usuario} onLogout={logout} historial={historial} onVerHistorial={()=>setVista("historial_completo")}/>}
