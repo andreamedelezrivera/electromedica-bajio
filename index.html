@@ -195,6 +195,22 @@ async function generarPDFOrden(orden){
   setTimeout(()=>URL.revokeObjectURL(url),4000);
 }
 function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"});}
+async function verificarClienteDirectorio(o){
+  const {data}=await sb.from("clientes").select("*").ilike("nombre",o.cliente_nombre).limit(1);
+  const cli=data&&data[0];
+  if(!cli)return {tipo:"nuevo"};
+  const nuevo={direccion:o.cliente_dir||null,ciudad:o.cliente_ciudad||null,telefono:o.cliente_tel||null,email:o.envio_email||null};
+  const distinto=(cli.direccion||"")!==(nuevo.direccion||"")||(cli.ciudad||"")!==(nuevo.ciudad||"")||(cli.telefono||"")!==(nuevo.telefono||"")||(cli.email||"")!==(nuevo.email||"");
+  if(!distinto)return {tipo:"igual"};
+  return {tipo:"diferente",existente:cli,nuevo};
+}
+async function crearClienteDirectorio(o){
+  await sb.from("clientes").insert({nombre:o.cliente_nombre,direccion:o.cliente_dir||null,ciudad:o.cliente_ciudad||null,telefono:o.cliente_tel||null,email:o.envio_email||null});
+  await sb.from("notificaciones").insert({mensaje:`🆕 Nuevo cliente agregado al directorio: ${o.cliente_nombre}`});
+}
+async function actualizarClienteDirectorio(id,nuevo){
+  await sb.from("clientes").update(nuevo).eq("id",id);
+}
 function obtenerUbicacion(){
   return new Promise(resolve=>{
     if(!navigator.geolocation){resolve(null);return;}
@@ -318,6 +334,37 @@ function FirmaPad({canvasRef,onDibujar}){
   );
 }
 
+function BuscadorCliente({val,set,onSeleccionar}){
+  const [sugerencias,setSugerencias]=useState([]);
+  const [abierto,setAbierto]=useState(false);
+  useEffect(()=>{
+    if(!val||val.trim().length<2){setSugerencias([]);return;}
+    let activo=true;
+    (async()=>{
+      const {data}=await sb.from("clientes").select("*").ilike("nombre",`%${val.trim()}%`).limit(6);
+      if(activo)setSugerencias(data||[]);
+    })();
+    return ()=>{activo=false;};
+  },[val]);
+  return (
+    <div style={{marginBottom:14,position:"relative"}}>
+      <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Nombre / Razón Social<span style={{color:C.error}}> *</span></div>
+      <input value={val} onChange={e=>{set(e.target.value);setAbierto(true);}} onFocus={()=>setAbierto(true)} onBlur={()=>setTimeout(()=>setAbierto(false),150)}
+        placeholder="Nombre del cliente" style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,outline:"none"}}/>
+      {abierto&&sugerencias.length>0&&(
+        <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",border:`1.5px solid ${C.borde}`,borderRadius:8,zIndex:50,maxHeight:180,overflowY:"auto",boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
+          {sugerencias.map(c=>(
+            <div key={c.id} onMouseDown={()=>{onSeleccionar(c);setAbierto(false);}} style={{padding:"8px 12px",cursor:"pointer",fontSize:13,borderBottom:`1px solid ${C.borde}`}}>
+              <div style={{fontWeight:700,color:C.marino}}>{c.nombre}</div>
+              <div style={{color:C.texto,fontSize:11}}>{c.direccion||""} {c.ciudad?`| ${c.ciudad}`:""}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Login({onLogin}){
   const [u,setU]=useState("");
   const [p,setP]=useState("");
@@ -369,7 +416,7 @@ function Header({titulo,usuario,onLogout,onLogoClick}){
 }
 
 function Nav({vista,setVista,notifs}){
-  const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"config",ico:"⚙️",lbl:"Config"}];
+  const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"directorio",ico:"📁",lbl:"Directorio"},{id:"config",ico:"⚙️",lbl:"Config"}];
   const vistaActiva=vista==="historial_completo"?"config":vista;
   return (
     <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.marino,display:"flex",zIndex:200,borderTop:`2px solid ${C.cielo}`}}>
@@ -557,6 +604,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
   const firmaCanvasRef=useRef(null);
   const [firmaDibujada,setFirmaDibujada]=useState(!!oe?.firma_imagen);
   const [firmaTocada,setFirmaTocada]=useState(false);
+  const [pendienteCliente,setPendienteCliente]=useState(null);
   const [o,setO]=useState({
     cliente_nombre:oe?.cliente_nombre||"",cliente_dir:oe?.cliente_dir||"",
     cliente_ciudad:oe?.cliente_ciudad||"",cliente_tel:oe?.cliente_tel||"",
@@ -622,7 +670,17 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     else{await sb.from("ordenes").insert(datos);}
     guardadoOkRef.current=true;
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden General #${folio} — ${o.cliente_nombre||"sin cliente"}`});
-    setSaving(false);setSucia&&setSucia(false);onDone();
+    setSaving(false);
+    const chequeo=await verificarClienteDirectorio(o);
+    if(chequeo.tipo==="nuevo"){await crearClienteDirectorio(o);setSucia&&setSucia(false);onDone();}
+    else if(chequeo.tipo==="diferente"){setPendienteCliente(chequeo);}
+    else{setSucia&&setSucia(false);onDone();}
+  }
+  function resolverSyncCliente(actualizar){
+    (async()=>{
+      if(actualizar&&pendienteCliente)await actualizarClienteDirectorio(pendienteCliente.existente.id,pendienteCliente.nuevo);
+      setPendienteCliente(null);setSucia&&setSucia(false);onDone();
+    })();
   }
   useEffect(()=>{
     if(guardarBorradorRef)guardarBorradorRef.current=()=>guardar("borrador");
@@ -639,7 +697,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
       <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>📋 Orden General #{folio}</div>
       <Card>
         <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:16}}>👤 Datos del Cliente</div>
-        <Inp lbl="Nombre / Razón Social" val={o.cliente_nombre} set={v=>upd("cliente_nombre",v)} req ph="Nombre del cliente"/>
+        <BuscadorCliente val={o.cliente_nombre} set={v=>upd("cliente_nombre",v)} onSeleccionar={c=>{setO(p=>({...p,cliente_nombre:c.nombre,cliente_dir:c.direccion||p.cliente_dir,cliente_ciudad:c.ciudad||p.cliente_ciudad,cliente_tel:c.telefono||p.cliente_tel}));setSucia&&setSucia(true);}}/>
         <Inp lbl="Dirección" val={o.cliente_dir} set={v=>upd("cliente_dir",v)} req ph="Calle, número, colonia"/>
         <Inp lbl="Ciudad" val={o.cliente_ciudad} set={v=>upd("cliente_ciudad",v)} req ph="Ciudad, estado"/>
         <Inp lbl="Teléfono" val={o.cliente_tel} set={v=>upd("cliente_tel",v)} req ph="10 dígitos" num/>
@@ -680,6 +738,16 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
           <Btn ch={saving?"Guardando...":"✅ Completar"} onClick={()=>{if(validar())guardar("completada");}} color={C.exito} dis={saving}/>
         </div>
       </Card>
+      {pendienteCliente&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>📇 Actualizar directorio de clientes</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Los datos de "{pendienteCliente.existente.nombre}" en esta orden son distintos a los del directorio. ¿Actualizar el directorio con los nuevos datos?</div>
+            <Btn ch="Sí, actualizar" onClick={()=>resolverSyncCliente(true)} color={C.exito} full/>
+            <Btn ch="No actualizar" onClick={()=>resolverSyncCliente(false)} color={C.texto} out full/>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -693,6 +761,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
   const firmaCanvasRef=useRef(null);
   const [firmaDibujada,setFirmaDibujada]=useState(!!oe?.firma_imagen);
   const [firmaTocada,setFirmaTocada]=useState(false);
+  const [pendienteCliente,setPendienteCliente]=useState(null);
   const [o,setO]=useState({
     cliente_nombre:oe?.cliente_nombre||"",cliente_dir:oe?.cliente_dir||"",
     cliente_ciudad:oe?.cliente_ciudad||"",cliente_tel:oe?.cliente_tel||"",
@@ -758,7 +827,17 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     else{await sb.from("ordenes").insert(datos);}
     guardadoOkRef.current=true;
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden #${folio} — ${o.cliente_nombre||"sin cliente"} | ${o.equipo_tipo}`});
-    setSaving(false);setSucia&&setSucia(false);onDone();
+    setSaving(false);
+    const chequeo=await verificarClienteDirectorio(o);
+    if(chequeo.tipo==="nuevo"){await crearClienteDirectorio(o);setSucia&&setSucia(false);onDone();}
+    else if(chequeo.tipo==="diferente"){setPendienteCliente(chequeo);}
+    else{setSucia&&setSucia(false);onDone();}
+  }
+  function resolverSyncCliente(actualizar){
+    (async()=>{
+      if(actualizar&&pendienteCliente)await actualizarClienteDirectorio(pendienteCliente.existente.id,pendienteCliente.nuevo);
+      setPendienteCliente(null);setSucia&&setSucia(false);onDone();
+    })();
   }
   useEffect(()=>{
     if(guardarBorradorRef)guardarBorradorRef.current=()=>guardar("borrador");
@@ -777,7 +856,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
           <div>
             <Card>
               <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:16}}>👤 Datos del Cliente</div>
-              <Inp lbl="Nombre / Razón Social" val={o.cliente_nombre} set={v=>upd("cliente_nombre",v)} req ph="Nombre del cliente o hospital"/>
+              <BuscadorCliente val={o.cliente_nombre} set={v=>upd("cliente_nombre",v)} onSeleccionar={c=>{setO(p=>({...p,cliente_nombre:c.nombre,cliente_dir:c.direccion||p.cliente_dir,cliente_ciudad:c.ciudad||p.cliente_ciudad,cliente_tel:c.telefono||p.cliente_tel}));setSucia&&setSucia(true);}}/>
               <Inp lbl="Dirección" val={o.cliente_dir} set={v=>upd("cliente_dir",v)} req ph="Calle, número, colonia"/>
               <Inp lbl="Ciudad" val={o.cliente_ciudad} set={v=>upd("cliente_ciudad",v)} req ph="Ciudad, estado"/>
               <Inp lbl="Teléfono" val={o.cliente_tel} set={v=>upd("cliente_tel",v)} req ph="10 dígitos" num/>
@@ -895,6 +974,16 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
           </div>
         )}
       </div>
+      {pendienteCliente&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>📇 Actualizar directorio de clientes</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Los datos de "{pendienteCliente.existente.nombre}" en esta orden son distintos a los del directorio. ¿Actualizar el directorio con los nuevos datos?</div>
+            <Btn ch="Sí, actualizar" onClick={()=>resolverSyncCliente(true)} color={C.exito} full/>
+            <Btn ch="No actualizar" onClick={()=>resolverSyncCliente(false)} color={C.texto} out full/>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -925,13 +1014,26 @@ function NuevaOrden({usuario,onDone,oe,setSucia,guardarBorradorRef,intentarSalir
 
 function ListaOrdenes({ordenes,onSel,loading,onNueva}){
   const [f,setF]=useState("todas");
-  const filt=ordenes.filter(o=>f==="todas"||o.estado===f);
+  const [vistaClientes,setVistaClientes]=useState(false);
+  const [busquedaCliente,setBusquedaCliente]=useState("");
+  const [clienteAbierto,setClienteAbierto]=useState(null);
   if(loading) return <div style={{textAlign:"center",padding:40,color:C.texto}}>Cargando...</div>;
+  const filt=ordenes.filter(o=>f==="todas"||o.estado===f);
+  const porCliente={};
+  filt.forEach(o=>{
+    const nombre=o.cliente_nombre||"Sin cliente";
+    (porCliente[nombre]=porCliente[nombre]||[]).push(o);
+  });
+  const clientesOrdenados=Object.keys(porCliente).sort((a,b)=>a.localeCompare(b)).filter(n=>n.toLowerCase().includes(busquedaCliente.toLowerCase()));
   return (
     <div style={{padding:16,paddingBottom:80}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{color:C.marino,fontWeight:800,fontSize:18}}>Órdenes de Servicio</div>
         <button onClick={onNueva} style={{width:36,height:36,borderRadius:"50%",background:C.marino,color:"#fff",border:"none",fontSize:20,fontWeight:700,cursor:"pointer",lineHeight:1}}>+</button>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:12}}>
+        <button onClick={()=>setVistaClientes(false)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:`2px solid ${C.marino}`,background:!vistaClientes?C.marino:"transparent",color:!vistaClientes?"#fff":C.marino,fontSize:12,fontWeight:700,cursor:"pointer"}}>Lista</button>
+        <button onClick={()=>setVistaClientes(true)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:`2px solid ${C.marino}`,background:vistaClientes?C.marino:"transparent",color:vistaClientes?"#fff":C.marino,fontSize:12,fontWeight:700,cursor:"pointer"}}>Por cliente</button>
       </div>
       <div style={{display:"flex",gap:6,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
         {["todas","borrador","en_proceso","completada"].map(x=>(
@@ -940,20 +1042,55 @@ function ListaOrdenes({ordenes,onSel,loading,onNueva}){
           </button>
         ))}
       </div>
-      {filt.length===0&&<div style={{textAlign:"center",color:C.texto,padding:40,background:C.blanco,borderRadius:12}}>No hay órdenes en este estado.</div>}
-      {filt.map(o=>(
-        <div key={o.id} onClick={()=>onSel(o)} style={{background:C.blanco,borderRadius:12,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",cursor:"pointer",borderLeft:`4px solid ${o.estado==="completada"?C.exito:o.estado==="en_proceso"?C.cielo:"#F0CA00"}`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div>
-              <div style={{fontWeight:800,color:C.marino,fontSize:16}}>Orden #{o.folio}</div>
-              <div style={{color:C.texto,fontSize:13,marginTop:2}}>{o.cliente_nombre||"Sin cliente"}</div>
-              <div style={{color:"#aaa",fontSize:12,marginTop:2}}>{o.equipo_tipo} {o.equipo_marca?`| ${o.equipo_marca}`:""}</div>
-              <div style={{color:"#ccc",fontSize:11,marginTop:2}}>{nombreU(o.creado_por)}</div>
+      {!vistaClientes&&(
+        <>
+          {filt.length===0&&<div style={{textAlign:"center",color:C.texto,padding:40,background:C.blanco,borderRadius:12}}>No hay órdenes en este estado.</div>}
+          {filt.map(o=>(
+            <div key={o.id} onClick={()=>onSel(o)} style={{background:C.blanco,borderRadius:12,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",cursor:"pointer",borderLeft:`4px solid ${o.estado==="completada"?C.exito:o.estado==="en_proceso"?C.cielo:"#F0CA00"}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontWeight:800,color:C.marino,fontSize:16}}>Orden #{o.folio}</div>
+                  <div style={{color:C.texto,fontSize:13,marginTop:2}}>{o.cliente_nombre||"Sin cliente"}</div>
+                  <div style={{color:"#aaa",fontSize:12,marginTop:2}}>{o.equipo_tipo} {o.equipo_marca?`| ${o.equipo_marca}`:""}</div>
+                  <div style={{color:"#ccc",fontSize:11,marginTop:2}}>{nombreU(o.creado_por)}</div>
+                </div>
+                <Badge tipo={o.estado}/>
+              </div>
             </div>
-            <Badge tipo={o.estado}/>
-          </div>
+          ))}
+        </>
+      )}
+      {vistaClientes&&(
+        <div>
+          <input value={busquedaCliente} onChange={e=>setBusquedaCliente(e.target.value)} placeholder="Buscar cliente..." style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:14,outline:"none",marginBottom:14}}/>
+          {clientesOrdenados.length===0&&<div style={{textAlign:"center",color:C.texto,padding:40,background:C.blanco,borderRadius:12}}>Sin clientes que coincidan.</div>}
+          {clientesOrdenados.map(nombre=>{
+            const abierto=clienteAbierto===nombre;
+            const ords=porCliente[nombre];
+            return (
+              <div key={nombre} style={{background:C.blanco,borderRadius:12,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",overflow:"hidden"}}>
+                <div onClick={()=>setClienteAbierto(abierto?null:nombre)} style={{padding:14,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontWeight:700,color:C.marino}}>{abierto?"▼ ":"▶ "}{nombre}</div>
+                  <div style={{fontSize:12,color:C.texto}}>{ords.length} orden{ords.length!==1?"es":""}</div>
+                </div>
+                {abierto&&(
+                  <div style={{padding:"0 14px 14px"}}>
+                    {ords.map(o=>(
+                      <div key={o.id} onClick={()=>onSel(o)} style={{background:C.gris,borderRadius:8,padding:12,marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div>
+                          <div style={{fontWeight:700,color:C.marino,fontSize:14}}>Orden #{o.folio}</div>
+                          <div style={{color:"#aaa",fontSize:11}}>{o.equipo_tipo}</div>
+                        </div>
+                        <Badge tipo={o.estado}/>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      ))}
+      )}
     </div>
   );
 }
@@ -1472,6 +1609,115 @@ function HistorialCompleto({usuario,onVolver}){
   );
 }
 
+function Directorio({usuario}){
+  const [tab,setTab]=useState("clientes");
+  const [clientes,setClientes]=useState([]);
+  const [usuarios,setUsuarios]=useState([]);
+  const [busqueda,setBusqueda]=useState("");
+  const [loading,setLoading]=useState(true);
+  const [mostrarForm,setMostrarForm]=useState(false);
+  const [nuevo,setNuevo]=useState({nombre:"",direccion:"",ciudad:"",telefono:"",email:""});
+  const [confirmNuevo,setConfirmNuevo]=useState(false);
+  const [confirmBorrar,setConfirmBorrar]=useState(null);
+  async function cargar(){
+    setLoading(true);
+    const {data:cli}=await sb.from("clientes").select("*").order("nombre");
+    if(cli)setClientes(cli);
+    const {data:us}=await sb.from("usuarios").select("id,nombre,usuario,rol").order("id");
+    if(us)setUsuarios(us);
+    setLoading(false);
+  }
+  useEffect(()=>{cargar();},[]);
+  const clientesFiltrados=clientes.filter(c=>c.nombre.toLowerCase().includes(busqueda.toLowerCase()));
+  async function agregarCliente(){
+    await sb.from("clientes").insert({nombre:nuevo.nombre,direccion:nuevo.direccion||null,ciudad:nuevo.ciudad||null,telefono:nuevo.telefono||null,email:nuevo.email||null});
+    await sb.from("notificaciones").insert({mensaje:`🆕 Nuevo cliente agregado al directorio: ${nuevo.nombre}`});
+    setNuevo({nombre:"",direccion:"",ciudad:"",telefono:"",email:""});
+    setMostrarForm(false);setConfirmNuevo(false);
+    cargar();
+  }
+  async function borrarCliente(id){
+    await sb.from("clientes").delete().eq("id",id);
+    setConfirmBorrar(null);
+    cargar();
+  }
+  return (
+    <div style={{padding:16,paddingBottom:80}}>
+      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>📁 Directorio</div>
+      <div style={{display:"flex",background:C.gris,borderRadius:10,padding:4,marginBottom:16}}>
+        {[{id:"clientes",lbl:"Clientes"},{id:"usuarios",lbl:"Usuarios"}].map(t=>(
+          <div key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,textAlign:"center",padding:"8px 2px",borderRadius:8,background:tab===t.id?C.marino:"transparent",color:tab===t.id?"#fff":C.texto,fontWeight:700,fontSize:13,cursor:"pointer"}}>{t.lbl}</div>
+        ))}
+      </div>
+      {loading&&<div style={{textAlign:"center",color:C.texto,padding:20}}>Cargando...</div>}
+      {!loading&&tab==="clientes"&&(
+        <div>
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <input value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar cliente..." style={{flex:1,padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:14,outline:"none"}}/>
+            <button onClick={()=>setMostrarForm(!mostrarForm)} style={{width:40,height:40,borderRadius:"50%",background:C.marino,color:"#fff",border:"none",fontSize:20,fontWeight:700,cursor:"pointer",lineHeight:1}}>+</button>
+          </div>
+          {mostrarForm&&(
+            <Card>
+              <Inp lbl="Nombre" val={nuevo.nombre} set={v=>setNuevo(p=>({...p,nombre:v}))} req ph="Nombre del cliente"/>
+              <Inp lbl="Dirección" val={nuevo.direccion} set={v=>setNuevo(p=>({...p,direccion:v}))} ph="Calle, número, colonia"/>
+              <Inp lbl="Ciudad" val={nuevo.ciudad} set={v=>setNuevo(p=>({...p,ciudad:v}))} ph="Ciudad, estado"/>
+              <Inp lbl="Teléfono" val={nuevo.telefono} set={v=>setNuevo(p=>({...p,telefono:v}))} ph="10 dígitos" num/>
+              <Inp lbl="Correo" val={nuevo.email} set={v=>setNuevo(p=>({...p,email:v}))} ph="correo@ejemplo.com" type="email"/>
+              <div style={{display:"flex",gap:8}}>
+                <Btn ch="Guardar" onClick={()=>setConfirmNuevo(true)} color={C.exito} sm dis={!nuevo.nombre.trim()}/>
+                <Btn ch="Cancelar" onClick={()=>setMostrarForm(false)} color={C.texto} out sm/>
+              </div>
+            </Card>
+          )}
+          {clientesFiltrados.length===0&&<div style={{textAlign:"center",color:C.texto,padding:30,background:C.blanco,borderRadius:12}}>Sin clientes {busqueda?"que coincidan":"registrados"}.</div>}
+          {clientesFiltrados.map(c=>(
+            <Card key={c.id}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontWeight:700,color:C.marino}}>{c.nombre}</div>
+                  <div style={{fontSize:13,color:C.texto}}>{c.direccion} {c.ciudad?`| ${c.ciudad}`:""}</div>
+                  <div style={{fontSize:13,color:C.texto}}>{c.telefono} {c.email?`| ${c.email}`:""}</div>
+                </div>
+                {usuario.rol==="admin"&&<span onClick={()=>setConfirmBorrar(c)} style={{cursor:"pointer",color:C.error,fontSize:18}}>🗑️</span>}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+      {!loading&&tab==="usuarios"&&(
+        <div>
+          {usuarios.map(u=>(
+            <Card key={u.id}>
+              <div style={{fontWeight:700,color:C.marino}}>{u.nombre}</div>
+              <div style={{fontSize:13,color:C.texto}}>@{u.usuario} · {u.rol==="admin"?"Administrador":u.rol==="supervisor"?"Supervisor":"Ingeniero"}</div>
+            </Card>
+          ))}
+        </div>
+      )}
+      {confirmNuevo&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>¿Agregar este cliente?</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>{nuevo.nombre}</div>
+            <Btn ch="Sí, agregar" onClick={agregarCliente} color={C.exito} full/>
+            <Btn ch="Cancelar" onClick={()=>setConfirmNuevo(false)} color={C.texto} out full/>
+          </div>
+        </div>
+      )}
+      {confirmBorrar&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Eliminar este cliente del directorio?</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>{confirmBorrar.nombre} — no afecta las órdenes ya guardadas.</div>
+            <Btn ch="Sí, eliminar" onClick={()=>borrarCliente(confirmBorrar.id)} color={C.error} full/>
+            <Btn ch="Cancelar" onClick={()=>setConfirmBorrar(null)} color={C.texto} out full/>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App(){
   const [usuario,setUsuario]=useState(()=>{try{const u=sessionStorage.getItem("emb_u");return u?JSON.parse(u):null;}catch(e){return null;}});
   const [vista,setVista]=useState("dashboard");
@@ -1531,7 +1777,7 @@ function App(){
   function refrescar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);setSelec(null);setVista("ordenes");}
   function soloRecargar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}
   if(!usuario) return <Login onLogin={login}/>;
-  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",config:"Configuración",historial_completo:"Historial"};
+  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",directorio:"Directorio",config:"Configuración",historial_completo:"Historial"};
   return (
     <div style={{minHeight:"100vh",background:C.gris}}>
       <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={pedirLogout} onLogoClick={()=>intentarNavegar(()=>{setOe(null);setSelec(null);setVista("dashboard");})}/>
@@ -1541,6 +1787,7 @@ function App(){
         {vista==="ordenes"&&!selec&&<ListaOrdenes ordenes={ordenes} onSel={o=>setSelec(o)} loading={loading} onNueva={()=>{setOe(null);setVista("nueva_orden");}}/>}
         {vista==="ordenes"&&selec&&<DetalleOrden orden={selec} usuario={usuario} onVolver={()=>setSelec(null)} onRefrescar={soloRecargar} onEditar={o=>{setOe(o);setSelec(null);setVista("nueva_orden");}}/>}
         {vista==="agenda"&&<Agenda ordenes={ordenes}/>}
+        {vista==="directorio"&&<Directorio usuario={usuario}/>}
         {vista==="config"&&<Config usuario={usuario} onLogout={pedirLogout} historial={historial} onVerHistorial={()=>setVista("historial_completo")}/>}
         {vista==="historial_completo"&&<HistorialCompleto usuario={usuario} onVolver={()=>setVista("config")}/>}
       </div>
