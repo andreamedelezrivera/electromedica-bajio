@@ -2045,6 +2045,7 @@ function App(){
   const [citas,setCitas]=useState([]);
   const [citaPrefill,setCitaPrefill]=useState(null);
   const [mantPopup,setMantPopup]=useState(null);
+  const [confirmNoRealiza,setConfirmNoRealiza]=useState(false);
   const [sucia,setSucia]=useState(false);
   const [confirmSalida,setConfirmSalida]=useState(null);
   const guardarBorradorRef=useRef(null);
@@ -2148,7 +2149,7 @@ function App(){
           </div>
         </div>
       )}
-      {mantPopup&&(
+      {mantPopup&&!confirmNoRealiza&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:360,width:"100%"}}>
             <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>🔧 Próximo mantenimiento</div>
@@ -2157,7 +2158,17 @@ function App(){
             </div>
             <Btn ch="📅 Agendar" onClick={()=>resolverMantPopup("agendar")} color={C.exito} full/>
             {mantPopup.etapa!=="1sem"&&<Btn ch="⏳ Pendiente" onClick={()=>resolverMantPopup("pendiente")} color={C.cielo} out full/>}
-            {mantPopup.etapa!=="2sem"&&<Btn ch="🚫 No se realiza" onClick={()=>resolverMantPopup("no_realiza")} color={C.error} out full/>}
+            {mantPopup.etapa!=="2sem"&&<Btn ch="🚫 No se realiza" onClick={()=>setConfirmNoRealiza(true)} color={C.error} out full/>}
+          </div>
+        </div>
+      )}
+      {mantPopup&&confirmNoRealiza&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:360,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Confirmar que no se realizará?</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Se le avisará a {mantPopup.orden.cliente_nombre} que el mantenimiento no se realizará.</div>
+            <Btn ch="Sí, confirmar" onClick={()=>{setConfirmNoRealiza(false);resolverMantPopup("no_realiza");}} color={C.error} full/>
+            <Btn ch="Volver" onClick={()=>setConfirmNoRealiza(false)} color={C.texto} out full/>
           </div>
         </div>
       )}
