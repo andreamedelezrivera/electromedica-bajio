@@ -1498,7 +1498,7 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
   return (
     <Card>
       <div style={{fontWeight:800,color:C.marino,marginBottom:12}}>📅 {citaExistente?"Reagendar Cita":"Nueva Cita"}</div>
-      <Inp lbl="Cliente" val={c.cliente_nombre} set={v=>upd("cliente_nombre",v)} req ph="Nombre del cliente"/>
+      <BuscadorCliente val={c.cliente_nombre} set={v=>upd("cliente_nombre",v)} onSeleccionar={cl=>setC(p=>({...p,cliente_nombre:cl.nombre,cliente_direccion:cl.direccion||p.cliente_direccion,cliente_telefono:cl.telefono||p.cliente_telefono}))}/>
       <Inp lbl="Ubicación" val={c.cliente_direccion} set={v=>upd("cliente_direccion",v)} req ph="Dirección del servicio"/>
       <Inp lbl="Teléfono del cliente" val={c.cliente_telefono} set={v=>upd("cliente_telefono",v)} ph="10 dígitos" num/>
       <TA lbl="Servicio a realizar" val={c.descripcion} set={v=>upd("descripcion",v)} req ph="Descripción abierta del servicio..."/>
@@ -1656,7 +1656,10 @@ function Agenda({ordenes,usuario,citas,recargarCitas,prefill,limpiarPrefill}){
           </div>
           {dia&&(
             <div>
-              <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:12}}>{dia} de {meses[mes]} de {anio}</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{color:C.marino,fontWeight:800,fontSize:16}}>{dia} de {meses[mes]} de {anio}</div>
+                <Btn ch="📅 Agendar cita" onClick={()=>{setPrefillLocal({fecha:`${anio}-${String(mes+1).padStart(2,"0")}-${String(dia).padStart(2,"0")}`});setMostrarForm(true);}} color={C.marino} sm/>
+              </div>
               {citasDelDia.length===0&&mantDelDia.length===0&&<div style={{background:C.blanco,borderRadius:12,padding:20,textAlign:"center",color:C.texto,marginBottom:12}}>Sin citas para este día.</div>}
               {citasDelDia.map(cit=>(
                 <div key={cit.id} onClick={()=>setCitaSel(cit)} style={{background:C.blanco,borderRadius:12,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",borderLeft:`4px solid ${colorU(cit.ingeniero_id)}`,cursor:"pointer"}}>
