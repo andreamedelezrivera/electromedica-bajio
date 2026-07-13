@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Segoe UI,system-ui,sans-serif;background:#F4F6F9}input,select,textarea,button{font-family:inherit}</style>
 </head>
 <body>
@@ -91,6 +92,107 @@ function comoArray(v){
   if(Array.isArray(v))return v;
   if(typeof v==="string"&&v){try{const p=JSON.parse(v);return Array.isArray(p)?p:[];}catch(e){return [];}}
   return [];
+}
+async function generarPDFOrden(orden){
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:"pt",format:"letter"});
+  const M=40;let y=60;
+  const W=doc.internal.pageSize.getWidth();
+  function linea(txt,size=11,bold=false,color="#000000"){
+    doc.setFont(undefined,bold?"bold":"normal");
+    doc.setFontSize(size);
+    doc.setTextColor(color);
+    const partes=doc.splitTextToSize(String(txt),W-M*2);
+    partes.forEach(p=>{
+      if(y>740){doc.addPage();y=50;}
+      doc.text(p,M,y);
+      y+=size*1.35;
+    });
+  }
+  function espacio(n=10){y+=n;}
+  try{doc.addImage(LOGO_DATA,"PNG",M,y-28,36,36);}catch(e){}
+  doc.setFont(undefined,"bold");doc.setFontSize(16);doc.setTextColor("#1B3A6B");
+  doc.text("ELECTROMÉDICA DEL BAJÍO",M+46,y-8);
+  doc.setFont(undefined,"normal");doc.setFontSize(11);doc.setTextColor("#000000");
+  doc.text(`Orden de Servicio #${orden.folio} — ${orden.estado}`,M+46,y+10);
+  y+=40;
+  linea("Cliente",13,true,"#1B3A6B");
+  linea(orden.cliente_nombre||"");
+  linea(`${orden.cliente_dir||""} | ${orden.cliente_ciudad||""}`);
+  linea(`Tel: ${orden.cliente_tel||""}`);
+  espacio(8);
+  linea("Equipo",13,true,"#1B3A6B");
+  linea(`${orden.equipo_tipo||""} ${orden.equipo_marca||""} ${orden.equipo_modelo||""}`.trim()||"—");
+  if(orden.equipo_serie)linea(`Serie: ${orden.equipo_serie}`);
+  if(orden.equipo)linea(`Equipo relacionado: ${orden.equipo}`);
+  espacio(8);
+  linea("Levantamiento",13,true,"#1B3A6B");
+  linea(orden.lev_obs||"Sin observaciones");
+  espacio(8);
+  if(orden.prev_realiza!==null&&orden.prev_realiza!==undefined){
+    linea("Mantenimiento Preventivo",13,true,"#1B3A6B");
+    linea(orden.prev_realiza?"Realizado":"No se realizó");
+    if(orden.prev_realiza){
+      Object.entries(orden.prev_checklist||{}).forEach(([sec,d])=>{
+        linea(sec,11,true);
+        if(d.realiza===false){linea("No se realizó",9);}
+        else{Object.entries(d.items||{}).forEach(([it,v])=>linea(`${v?"✓":"○"} ${it}`,9));}
+      });
+      if(orden.prev_comentarios)linea(`Comentarios: ${orden.prev_comentarios}`);
+      if(orden.prev_proximo)linea(`Próximo mantenimiento: ${orden.prev_proximo}`);
+    }
+    espacio(8);
+  }
+  if(orden.corr_realiza!==null&&orden.corr_realiza!==undefined){
+    linea("Mantenimiento Correctivo",13,true,"#1B3A6B");
+    linea(orden.corr_realiza?"Realizado":"No se realizó");
+    if(orden.corr_realiza){
+      linea(orden.corr_descripcion||"");
+      if(orden.corr_refacciones)linea(`Refacciones: ${orden.corr_refacciones}`);
+    }
+    espacio(8);
+  }
+  const fotos=comoArray(orden.fotos);
+  if(fotos.length>0){
+    linea("Fotos",13,true,"#1B3A6B");
+    if(y>650){doc.addPage();y=50;}
+    let x=M;
+    fotos.slice(0,6).forEach(f=>{
+      if(x+80>W-M){x=M;y+=90;}
+      if(y>700){doc.addPage();y=50;x=M;}
+      try{doc.addImage(f,"JPEG",x,y,80,80);}catch(e){}
+      x+=90;
+    });
+    y+=100;
+  }
+  if(orden.firma_imagen||orden.firma_nombre){
+    if(y>650){doc.addPage();y=50;}
+    linea("Firma",13,true,"#1B3A6B");
+    if(orden.firma_nombre)linea(orden.firma_nombre);
+    if(orden.firma_imagen){try{doc.addImage(orden.firma_imagen,"PNG",M,y,160,70);y+=80;}catch(e){}}
+  }
+  espacio(14);
+  const colabs=comoArray(orden.colaboradores);
+  linea(`Realizado por: ${nombreU(orden.creado_por)}${colabs.length?` + ${colabs.map(id=>nombreU(id)).join(", ")}`:""}`,10);
+  linea(`Fecha: ${orden.fecha_guardado?new Date(orden.fecha_guardado).toLocaleString("es-MX"):""}`,10);
+
+  const nombreArchivo=`Orden_${orden.folio}_${(orden.cliente_nombre||"cliente").replace(/[^a-zA-Z0-9]+/g,"_")}.pdf`;
+  const blob=doc.output("blob");
+  if(window.showSaveFilePicker){
+    try{
+      const handle=await window.showSaveFilePicker({suggestedName:nombreArchivo,types:[{description:"PDF",accept:{"application/pdf":[".pdf"]}}]});
+      const writable=await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    }catch(e){
+      if(e.name==="AbortError")return;
+    }
+  }
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download=nombreArchivo;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
 }
 function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"});}
 function obtenerUbicacion(){
@@ -302,7 +404,7 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
       }
     }
     await sb.from("notificaciones").insert({
-      mensaje:aprobada?`✅ Tu solicitud para editar Orden #${folio} fue APROBADA`:`❌ Tu solicitud para editar Orden #${folio} fue RECHAZADA`,
+      mensaje:aprobada?`✅ La solicitud de ${nombreU(uidSol)} para editar Orden #${folio} fue APROBADA por ${usuario.nombre.split(" ")[0]}`:`❌ La solicitud de ${nombreU(uidSol)} para editar Orden #${folio} fue RECHAZADA por ${usuario.nombre.split(" ")[0]}`,
       para_usuario_id:uidSol,
       para_rol:"ingeniero"
     });
@@ -461,6 +563,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     tipo_servicio:oe?.equipo_tipo?.replace("GENERAL: ","")||"",
     equipo:oe?.equipo||"",
     descripcion:oe?.lev_obs||"",materiales:oe?.corr_descripcion||"",
+    fotos:comoArray(oe?.fotos),
     firma_nombre:oe?.firma_nombre||"",
     envio_wa:oe?.envio_wa||"",envio_email:oe?.envio_email||""
   });
@@ -483,6 +586,29 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     };
   },[]);
   function upd(k,v){setO(p=>({...p,[k]:v}));setSucia&&setSucia(true);}
+  function agregarFoto(base64){setO(p=>({...p,fotos:[...(p.fotos||[]),base64]}));setSucia&&setSucia(true);}
+  function quitarFoto(idx){setO(p=>({...p,fotos:(p.fotos||[]).filter((_,i)=>i!==idx)}));setSucia&&setSucia(true);}
+  function manejarFotos(e){
+    const files=Array.from(e.target.files||[]);
+    files.forEach(file=>{
+      const reader=new FileReader();
+      reader.onload=ev=>{
+        const img=new Image();
+        img.onload=()=>{
+          const maxW=800;
+          const escala=Math.min(1,maxW/img.width);
+          const w=Math.round(img.width*escala),h=Math.round(img.height*escala);
+          const canvas=document.createElement("canvas");
+          canvas.width=w;canvas.height=h;
+          canvas.getContext("2d").drawImage(img,0,0,w,h);
+          agregarFoto(canvas.toDataURL("image/jpeg",0.7));
+        };
+        img.src=ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value="";
+  }
   async function guardar(estado){
     setSaving(true);
     const ubicacion=await obtenerUbicacion();
@@ -490,7 +616,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     const datos={folio,estado,creado_por:usuario.id,fecha_guardado:new Date().toISOString(),ubicacion,
       cliente_nombre:o.cliente_nombre,cliente_dir:o.cliente_dir,cliente_ciudad:o.cliente_ciudad,cliente_tel:o.cliente_tel,
       equipo_tipo:`GENERAL: ${o.tipo_servicio}`,equipo:o.equipo,lev_obs:o.descripcion,corr_descripcion:o.materiales,
-      firma_nombre:o.firma_nombre,firma_imagen,
+      fotos:o.fotos,firma_nombre:o.firma_nombre,firma_imagen,
       envio_wa:o.envio_wa,envio_email:o.envio_email};
     if(oe){await sb.from("ordenes").update(datos).eq("id",oe.id);}
     else{await sb.from("ordenes").insert(datos);}
@@ -503,6 +629,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
   });
   function validar(){
     if(!o.cliente_nombre||!o.cliente_dir||!o.cliente_ciudad||!o.cliente_tel||!o.tipo_servicio||!o.descripcion){setErr("Completa todos los campos obligatorios.");return false;}
+    if((o.fotos||[]).length<3){setErr("Agrega al menos 3 fotos del servicio.");return false;}
     if(!o.envio_wa&&!o.envio_email){setErr("Ingresa WhatsApp o correo del cliente.");return false;}
     setErr("");return true;
   }
@@ -523,6 +650,21 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
         <Inp lbl="Tipo de servicio" val={o.tipo_servicio} set={v=>upd("tipo_servicio",v)} req ph="ej. Instalación eléctrica, entrega de equipo..."/>
         <TA lbl="Descripción del trabajo realizado" val={o.descripcion} set={v=>upd("descripcion",v)} req ph="Describe detalladamente el trabajo realizado..."/>
         <TA lbl="Materiales utilizados" val={o.materiales} set={v=>upd("materiales",v)} ph="Lista los materiales o refacciones utilizadas..."/>
+        <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>📸 Fotos del servicio <span style={{color:C.error}}>* (mínimo 3)</span></div>
+        <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
+          📷 Tomar / subir foto
+          <input type="file" accept="image/*" capture="environment" multiple onChange={manejarFotos} style={{display:"none"}}/>
+        </label>
+        {o.fotos?.length>0&&(
+          <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
+            {o.fotos.map((f,i)=>(
+              <div key={i} style={{position:"relative"}}>
+                <img src={f} style={{width:72,height:72,objectFit:"cover",borderRadius:8,border:`1px solid ${C.borde}`}}/>
+                <span onClick={()=>quitarFoto(i)} style={{position:"absolute",top:-6,right:-6,background:C.error,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer",fontWeight:700}}>×</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
       <Card style={{background:C.amarillo,border:`1px solid #F0CA00`}}>
         <div style={{fontWeight:800,color:"#7D6608",marginBottom:12}}>✍️ Firma y Envío</div>
@@ -820,10 +962,17 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
   const [confirmEliminar,setConfirmEliminar]=useState(false);
   const [eliminando,setEliminando]=useState(false);
   const [solicitado,setSolicitado]=useState(false);
+  const [generandoPDF,setGenerandoPDF]=useState(false);
   const esAdmin=usuario.rol==="admin";
   const esBorrador=orden.estado==="borrador";
   const esEnProceso=orden.estado==="en_proceso";
   const esDueñoBorrador=esBorrador&&orden.creado_por===usuario.id;
+  async function descargarPDF(){
+    setGenerandoPDF(true);
+    try{await generarPDFOrden(orden);}
+    catch(e){alert("Error al generar el PDF: "+e.message);}
+    setGenerandoPDF(false);
+  }
   async function eliminar(){
     setEliminando(true);
     const {error} = await sb.from("ordenes").delete().eq("id",orden.id);
@@ -862,9 +1011,9 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
           <Badge tipo={orden.estado}/>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {(esAdmin||esBorrador)&&<Btn ch="✏️ Editar" onClick={()=>onEditar(orden)} color={C.cielo} sm/>}
+          {(esAdmin||esDueñoBorrador)&&<Btn ch="✏️ Editar" onClick={()=>onEditar(orden)} color={C.cielo} sm/>}
           {(esAdmin||esDueñoBorrador)&&<Btn ch="🗑️ Eliminar" onClick={()=>setConfirmEliminar(true)} color={C.error} sm/>}
-          {!esAdmin&&!esBorrador&&!esEnProceso&&!solicitado&&<Btn ch="✏️ Solicitar permiso" onClick={solicitarPermiso} color={C.cielo} sm/>}
+          {!esAdmin&&!esDueñoBorrador&&!esEnProceso&&!solicitado&&<Btn ch="✏️ Solicitar permiso" onClick={solicitarPermiso} color={C.cielo} sm/>}
           {!esAdmin&&solicitado&&<div style={{background:"#D5F5E3",color:"#1E8449",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700}}>✓ Solicitud enviada</div>}
         </div>
       </div>
@@ -950,7 +1099,7 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
         </Card>
       )}
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        <Btn ch="📄 PDF" onClick={()=>alert("Próximamente")} color={C.cielo} sm/>
+        <Btn ch={generandoPDF?"Generando...":"📄 PDF"} onClick={descargarPDF} color={C.cielo} sm dis={generandoPDF}/>
         <Btn ch="📱 WhatsApp" onClick={()=>alert("Próximamente")} color={C.exito} sm/>
         <Btn ch="✉️ Correo" onClick={()=>alert("Próximamente")} color={C.marino} sm/>
       </div>
@@ -1377,7 +1526,7 @@ function App(){
     if(data)setHistorial(data);
   }
   useEffect(()=>{if(usuario){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}},[usuario]);
-  function login(u){sessionStorage.setItem("emb_u",JSON.stringify(u));setUsuario(u);}
+  function login(u){sessionStorage.setItem("emb_u",JSON.stringify(u));setUsuario(u);setVista("dashboard");setOe(null);setSelec(null);}
   function logout(){sessionStorage.removeItem("emb_u");setUsuario(null);}
   function refrescar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);setSelec(null);setVista("ordenes");}
   function soloRecargar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}
