@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Segoe UI,system-ui,sans-serif;background:#F4F6F9}input,select,textarea,button{font-family:inherit}</style>
 </head>
 <body>
@@ -21,6 +22,8 @@ const sb=window.supabase.createClient(
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRveGFobXFjbmpwamJ2cXV1enJ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwMTYwOTUsImV4cCI6MjA5ODU5MjA5NX0.0ex2tu6e5ajf22r_F_uh81ySYaIMm1Y5Bk95t9CK5eU"
 );
 const C={marino:"#1B3A6B",cielo:"#4A90D9",amarillo:"#FFF3B0",blanco:"#FFFFFF",gris:"#F4F6F9",texto:"#4A5568",exito:"#27AE60",error:"#E74C3C",borde:"#D1D5DB"};
+const GOOGLE_CLIENT_ID="658131872971-6j4ri9padoa484n1q527sl707g5n4ap6.apps.googleusercontent.com";
+const GOOGLE_DRIVE_SCOPE="https://www.googleapis.com/auth/drive.file";
 const USUARIOS=[
   {id:1,nombre:"Andrea Medélez Rivera",usuario:"andrea",pin:"Andy1209.",rol:"admin"},
   {id:2,nombre:"José Guillermo Navarro Palomar",usuario:"guillermo",pin:"5678",rol:"supervisor"},
@@ -118,6 +121,52 @@ async function sincronizarPendientesOffline(){
   }
   guardarPendientesOffline(restantes);
   return {ok,fallidos:restantes.length};
+}
+function csvEscape(v){
+  const s=v===null||v===undefined?"":String(v);
+  if(/[",\n]/.test(s))return `"${s.replace(/"/g,'""')}"`;
+  return s;
+}
+function generarCSVNotificaciones(lista){
+  const filas=[["id","fecha","mensaje","para_rol","para_usuario_id","leida"]];
+  lista.forEach(n=>{
+    filas.push([n.id,n.fecha,n.mensaje.replace(/\|/g," "),n.para_rol||"",n.para_usuario_id||"",n.leida?"si":"no"]);
+  });
+  return filas.map(f=>f.map(csvEscape).join(",")).join("\r\n");
+}
+function rangoMes(anio,mesIndice){
+  const desde=new Date(anio,mesIndice,1).toISOString();
+  const hasta=new Date(anio,mesIndice+1,1).toISOString();
+  return {desde,hasta};
+}
+const NOMBRES_MES=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+function obtenerTokenGoogle(){
+  return new Promise((resolve,reject)=>{
+    if(!window.google?.accounts?.oauth2){reject(new Error("Google Identity Services no cargó. Revisa tu conexión e intenta de nuevo."));return;}
+    const client=window.google.accounts.oauth2.initTokenClient({
+      client_id:GOOGLE_CLIENT_ID,
+      scope:GOOGLE_DRIVE_SCOPE,
+      callback:(resp)=>{
+        if(resp.error){reject(new Error(resp.error));return;}
+        resolve(resp.access_token);
+      }
+    });
+    client.requestAccessToken();
+  });
+}
+async function subirCSVaDrive(accessToken,nombreArchivo,contenidoCSV){
+  const boundary="emb_boundary_"+Date.now();
+  const metadata={name:nombreArchivo,mimeType:"text/csv"};
+  const body=
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`+
+    `--${boundary}\r\nContent-Type: text/csv\r\n\r\n${contenidoCSV}\r\n--${boundary}--`;
+  const resp=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",{
+    method:"POST",
+    headers:{"Authorization":`Bearer ${accessToken}`,"Content-Type":`multipart/related; boundary=${boundary}`},
+    body
+  });
+  if(!resp.ok){const t=await resp.text();throw new Error("Google Drive respondió con error: "+t);}
+  return resp.json();
 }
 async function generarPDFOrden(orden){
   const {jsPDF}=window.jspdf;
@@ -1733,6 +1782,64 @@ function Agenda({ordenes,usuario,citas,recargarCitas,prefill,limpiarPrefill}){
   );
 }
 
+function RespaldoDrive(){
+  const hoy=new Date();
+  const mesAnteriorIdx=hoy.getMonth()===0?11:hoy.getMonth()-1;
+  const anioMesAnterior=hoy.getMonth()===0?hoy.getFullYear()-1:hoy.getFullYear();
+  const [mesSel,setMesSel]=useState(mesAnteriorIdx);
+  const [anioSel,setAnioSel]=useState(anioMesAnterior);
+  const [estado,setEstado]=useState(""); // "", "subiendo", "listo", "error"
+  const [error,setError]=useState("");
+  const [confirmar,setConfirmar]=useState(false);
+  const [resultado,setResultado]=useState(null);
+  async function exportarYBorrar(){
+    setConfirmar(false);setEstado("subiendo");setError("");
+    try{
+      const {desde,hasta}=rangoMes(anioSel,mesSel);
+      const {data,error:errSel}=await sb.from("notificaciones").select("*").gte("fecha",desde).lt("fecha",hasta).order("fecha");
+      if(errSel)throw errSel;
+      if(!data||data.length===0){setEstado("");setError(`No hay notificaciones de ${NOMBRES_MES[mesSel]} ${anioSel} para exportar.`);return;}
+      const csv=generarCSVNotificaciones(data);
+      const token=await obtenerTokenGoogle();
+      const nombreArchivo=`notificaciones_${NOMBRES_MES[mesSel]}_${anioSel}.csv`;
+      await subirCSVaDrive(token,nombreArchivo,csv);
+      const ids=data.map(n=>n.id);
+      await sb.from("notificaciones").delete().in("id",ids);
+      setResultado({archivo:nombreArchivo,cantidad:data.length});
+      setEstado("listo");
+    }catch(e){
+      setEstado("error");setError(e.message||"No se pudo completar el respaldo.");
+    }
+  }
+  return (
+    <Card>
+      <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>📦 Respaldo de notificaciones a Google Drive</div>
+      <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Exporta las notificaciones del mes elegido a un CSV en tu Google Drive, y las elimina de la base de datos para no retener info en la nube. Te pedirá iniciar sesión con Google la primera vez de cada sesión de navegador.</div>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <select value={mesSel} onChange={e=>setMesSel(parseInt(e.target.value))} style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:14,background:"#fff"}}>
+          {NOMBRES_MES.map((m,i)=><option key={m} value={i} style={{textTransform:"capitalize"}}>{m}</option>)}
+        </select>
+        <select value={anioSel} onChange={e=>setAnioSel(parseInt(e.target.value))} style={{width:100,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:14,background:"#fff"}}>
+          {[hoy.getFullYear()-1,hoy.getFullYear()].map(a=><option key={a} value={a}>{a}</option>)}
+        </select>
+      </div>
+      {error&&<div style={{color:C.error,fontSize:13,marginBottom:10}}>{error}</div>}
+      {estado==="listo"&&resultado&&<div style={{background:"#D5F5E3",color:"#1E8449",borderRadius:8,padding:8,marginBottom:10,fontSize:13,fontWeight:700}}>✓ {resultado.archivo} subido a Drive y {resultado.cantidad} notificaciones eliminadas de la base de datos.</div>}
+      <Btn ch={estado==="subiendo"?"Subiendo...":"📤 Exportar y eliminar del mes"} onClick={()=>setConfirmar(true)} color={C.marino} sm dis={estado==="subiendo"}/>
+      {confirmar&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>⚠️ ¿Exportar y eliminar?</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Se subirá un CSV con las notificaciones de {NOMBRES_MES[mesSel]} {anioSel} a tu Google Drive y luego se eliminarán DEFINITIVAMENTE de la base de datos.</div>
+            <Btn ch="Sí, exportar y eliminar" onClick={exportarYBorrar} color={C.error} full/>
+            <Btn ch="Cancelar" onClick={()=>setConfirmar(false)} color={C.texto} out full/>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function Config({usuario,onLogout,historial,onVerHistorial}){
   const [users,setUsers]=useState(USUARIOS);
   const [editando,setEditando]=useState(null);
@@ -1884,6 +1991,7 @@ function Config({usuario,onLogout,historial,onVerHistorial}){
           ))}
         </Card>
       )}
+      {usuario.rol==="admin"&&<RespaldoDrive/>}
       <Card>
         <div style={{fontWeight:700,color:C.marino,marginBottom:12}}>📜 Historial de Notificaciones</div>
         {historial&&historial.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin notificaciones en el historial.</div>}
