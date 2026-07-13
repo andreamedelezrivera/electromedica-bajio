@@ -211,6 +211,47 @@ async function crearClienteDirectorio(o){
 async function actualizarClienteDirectorio(id,nuevo){
   await sb.from("clientes").update(nuevo).eq("id",id);
 }
+function diasHasta(fechaStr){
+  if(!fechaStr)return null;
+  const hoy=new Date();hoy.setHours(0,0,0,0);
+  const f=new Date(fechaStr+"T00:00:00");
+  if(isNaN(f))return null;
+  return Math.round((f-hoy)/86400000);
+}
+function combinarFechaHora(fecha,hora){return new Date(`${fecha}T${hora}`);}
+function citasSeTraslapan(c1,c2){
+  if(c1.fecha!==c2.fecha)return false;
+  const ini1=combinarFechaHora(c1.fecha,c1.hora).getTime();
+  const fin1=ini1+(c1.duracion_horas*3600000)+(c1.traslado_minutos*60000);
+  const ini2=combinarFechaHora(c2.fecha,c2.hora).getTime();
+  const fin2=ini2+(c2.duracion_horas*3600000)+(c2.traslado_minutos*60000);
+  return ini1<fin2&&ini2<fin1;
+}
+function linkWhatsApp(telefono,mensaje){
+  const num=(telefono||"").replace(/\D/g,"");
+  return `https://wa.me/52${num}?text=${encodeURIComponent(mensaje)}`;
+}
+function linkCorreo(email,asunto,mensaje){
+  return `mailto:${email||""}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje)}`;
+}
+async function revisarEscalacionMantenimiento(usuario,mostrarPopup){
+  const {data}=await sb.from("ordenes").select("*").eq("estado","completada").not("prev_proximo","is",null).is("mant_cita_id",null).or("mant_estado.is.null,mant_estado.neq.no_realiza");
+  if(!data)return;
+  for(const o of data){
+    const dias=diasHasta(o.prev_proximo);
+    if(dias===null)continue;
+    let etapa=null,campo=null;
+    if(dias<=14&&dias>10&&!o.mant_notif_2sem){etapa="2sem";campo="mant_notif_2sem";}
+    else if(dias<=10&&dias>7&&!o.mant_notif_1_5sem){etapa="1.5sem";campo="mant_notif_1_5sem";}
+    else if(dias<=7&&dias>2&&!o.mant_notif_1sem){etapa="1sem";campo="mant_notif_1sem";}
+    if(!etapa)continue;
+    await sb.from("ordenes").update({[campo]:true}).eq("id",o.id);
+    const etiquetaEtapa=etapa==="2sem"?"en 2 semanas":etapa==="1.5sem"?"en 1.5 semanas":"en 1 semana";
+    const msg=`🔧 Próximo mantenimiento de ${o.cliente_nombre} (${o.equipo_tipo}) programado ${o.prev_proximo} (${etiquetaEtapa})`;
+    await sb.from("notificaciones").insert([{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:o.creado_por}]);
+    if(usuario.id===o.creado_por){mostrarPopup({orden:o,etapa});return;}
+  }
+}
 function obtenerUbicacion(){
   return new Promise(resolve=>{
     if(!navigator.geolocation){resolve(null);return;}
@@ -534,13 +575,27 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
   );
 }
 
-function Dashboard({usuario,ordenes,notifs,setVista,recargarNotifs}){
+function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recargarCitas,onAgendarOrden}){
+  const [confirmCompletar,setConfirmCompletar]=useState(null);
   const stats=[
     {l:"Total",v:ordenes.length,col:C.marino},
     {l:"Borrador",v:ordenes.filter(o=>o.estado==="borrador").length,col:"#7D6608"},
     {l:"En Proceso",v:ordenes.filter(o=>o.estado==="en_proceso").length,col:C.cielo},
     {l:"Completadas",v:ordenes.filter(o=>o.estado==="completada").length,col:C.exito}
   ];
+  const hoyStr=new Date().toISOString().slice(0,10);
+  const citasHoy=(citas||[]).filter(c=>c.fecha===hoyStr&&c.estado!=="cancelada"&&(usuario.rol==="admin"||c.ingeniero_id===usuario.id||c.colaborador_id===usuario.id)).sort((a,b)=>a.hora.localeCompare(b.hora));
+  const pendientesUrgentes=ordenes.filter(o=>{
+    if(!o.prev_realiza||!o.prev_proximo||o.mant_cita_id||o.mant_estado==="no_realiza")return false;
+    const d=diasHasta(o.prev_proximo);
+    if(d===null||d<0||d>7)return false;
+    return usuario.rol==="admin"||o.creado_por===usuario.id;
+  });
+  async function marcarCompletada(cita){
+    await sb.from("citas").update({estado:"completada"}).eq("id",cita.id);
+    setConfirmCompletar(null);
+    recargarCitas&&recargarCitas();
+  }
   return (
     <div style={{padding:16}}>
       <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:4}}>Bienvenida, {usuario.nombre.split(" ")[0]} 👋</div>
@@ -553,12 +608,47 @@ function Dashboard({usuario,ordenes,notifs,setVista,recargarNotifs}){
           </div>
         ))}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:notifs.length>0?20:0}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
         <Btn ch="➕ Nueva Orden" onClick={()=>setVista("nueva_orden")} color={C.marino} full/>
         <Btn ch="📋 Ver Órdenes" onClick={()=>setVista("ordenes")} color={C.cielo} full/>
       </div>
+      {citasHoy.length>0&&(
+        <Card>
+          <div style={{fontWeight:800,color:C.marino,marginBottom:10}}>📅 Agenda de hoy</div>
+          {citasHoy.map(c=>(
+            <label key={c.id} style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10,cursor:c.estado==="completada"?"default":"pointer"}}>
+              <input type="checkbox" checked={c.estado==="completada"} disabled={c.estado==="completada"} onChange={()=>setConfirmCompletar(c)} style={{marginTop:2,width:18,height:18,accentColor:C.exito}}/>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:c.estado==="completada"?"#aaa":C.texto,textDecoration:c.estado==="completada"?"line-through":"none"}}>{c.hora.slice(0,5)} — {c.cliente_nombre}</div>
+                <div style={{fontSize:12,color:"#aaa"}}>{c.descripcion}</div>
+              </div>
+            </label>
+          ))}
+        </Card>
+      )}
+      {pendientesUrgentes.length>0&&(
+        <Card style={{background:C.amarillo,border:"1px solid #F0CA00"}}>
+          <div style={{fontWeight:800,color:"#7D6608",marginBottom:10}}>⏰ Pendientes de agendar (urgentes)</div>
+          {pendientesUrgentes.map(o=>(
+            <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{fontSize:13,color:"#7D6608"}}>{o.cliente_nombre} — {o.prev_proximo}</div>
+              <Btn ch="📅 Agendar" onClick={()=>onAgendarOrden&&onAgendarOrden(o)} color={C.marino} sm/>
+            </div>
+          ))}
+        </Card>
+      )}
       {notifs.length>0&&(
         <NotifPanel notifs={notifs} usuario={usuario} recargarNotifs={recargarNotifs}/>
+      )}
+      {confirmCompletar&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>¿Marcar esta cita como completada?</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>{confirmCompletar.cliente_nombre} — {confirmCompletar.hora.slice(0,5)}</div>
+            <Btn ch="Sí, completada" onClick={()=>marcarCompletada(confirmCompletar)} color={C.exito} full/>
+            <Btn ch="Cancelar" onClick={()=>setConfirmCompletar(null)} color={C.texto} out full/>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -919,7 +1009,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
                   <div style={{fontWeight:700,color:C.marino,marginBottom:12}}>Checklist — {o.equipo_tipo}</div>
                   {secs.map(sec=><SecCL key={sec} sec={sec} data={o.prev_checklist} onChange={(s,v)=>upd("prev_checklist",{...o.prev_checklist,[s]:v})}/>)}
                   <TA lbl="Comentarios adicionales" val={o.prev_comentarios} set={v=>upd("prev_comentarios",v)} ph="Observaciones, hallazgos, recomendaciones..."/>
-                  <Inp lbl="📅 Programar próximo mantenimiento" val={o.prev_proximo} set={v=>upd("prev_proximo",v)} ph="ej. 2027-01-15"/>
+                  <Inp lbl="📅 Programar próximo mantenimiento" val={o.prev_proximo} set={v=>upd("prev_proximo",v)} type="date"/>
                 </div>
               )}
             </Card>
@@ -1244,22 +1334,174 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
   );
 }
 
-function Agenda({ordenes}){
+function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExistente}){
+  const esAdmin=usuario.rol==="admin"||usuario.rol==="supervisor";
+  const [usuariosApp,setUsuariosApp]=useState([]);
+  const [clienteHistorial,setClienteHistorial]=useState([]);
+  const [c,setC]=useState({
+    cliente_nombre:citaExistente?.cliente_nombre||prefill?.cliente_nombre||"",
+    cliente_direccion:citaExistente?.cliente_direccion||prefill?.cliente_direccion||"",
+    cliente_telefono:citaExistente?.cliente_telefono||prefill?.cliente_telefono||"",
+    descripcion:citaExistente?.descripcion||prefill?.descripcion||"",
+    fecha:citaExistente?.fecha||prefill?.fecha||"",
+    hora:citaExistente?.hora?.slice(0,5)||"09:00",
+    duracion_horas:citaExistente?.duracion_horas||1,
+    traslado_minutos:citaExistente?.traslado_minutos??40,
+    ingeniero_id:citaExistente?citaExistente.ingeniero_id:(esAdmin?"":usuario.id),
+    colaborador_id:citaExistente?.colaborador_id||""
+  });
+  const [error,setError]=useState("");
+  const [conflicto,setConflicto]=useState(null);
+  const [confirmando,setConfirmando]=useState(false);
+  const [guardando,setGuardando]=useState(false);
+  useEffect(()=>{(async()=>{const {data}=await sb.from("usuarios").select("id,nombre,rol").order("id");if(data)setUsuariosApp(data);})();},[]);
+  useEffect(()=>{
+    if(!esAdmin||!c.cliente_nombre||c.cliente_nombre.trim().length<2){setClienteHistorial([]);return;}
+    let activo=true;
+    (async()=>{
+      const {data}=await sb.from("ordenes").select("creado_por").ilike("cliente_nombre",`%${c.cliente_nombre.trim()}%`);
+      if(activo)setClienteHistorial([...new Set((data||[]).map(o=>o.creado_por))]);
+    })();
+    return ()=>{activo=false;};
+  },[c.cliente_nombre]);
+  function upd(k,v){setC(p=>({...p,[k]:v}));}
+  const ingenierosOrdenados=[...usuariosApp].sort((a,b)=>{
+    const ha=clienteHistorial.includes(a.id)?0:1,hb=clienteHistorial.includes(b.id)?0:1;
+    return ha-hb;
+  });
+  function validar(){
+    if(!c.cliente_nombre||!c.cliente_direccion||!c.descripcion||!c.fecha||!c.hora||!c.duracion_horas){setError("Completa todos los campos obligatorios.");return false;}
+    if(esAdmin&&!c.ingeniero_id){setError("Selecciona un ingeniero.");return false;}
+    setError("");return true;
+  }
+  function buscarConflicto(){
+    const ingId=esAdmin?parseInt(c.ingeniero_id):usuario.id;
+    const nueva={fecha:c.fecha,hora:c.hora,duracion_horas:parseFloat(c.duracion_horas),traslado_minutos:parseInt(c.traslado_minutos)};
+    const involucrados=[ingId];
+    if(c.colaborador_id)involucrados.push(parseInt(c.colaborador_id));
+    return citas.filter(x=>x.estado!=="cancelada"&&x.id!==citaExistente?.id&&(involucrados.includes(x.ingeniero_id)||involucrados.includes(x.colaborador_id))).find(x=>citasSeTraslapan(nueva,x))||null;
+  }
+  function intentarGuardar(){
+    if(!validar())return;
+    const choque=buscarConflicto();
+    if(choque){setConflicto(choque);return;}
+    setConflicto(null);setConfirmando(true);
+  }
+  async function guardar(){
+    setGuardando(true);
+    const ingId=esAdmin?parseInt(c.ingeniero_id):usuario.id;
+    const datos={
+      cliente_nombre:c.cliente_nombre,cliente_direccion:c.cliente_direccion,cliente_telefono:c.cliente_telefono,
+      ingeniero_id:ingId,colaborador_id:c.colaborador_id?parseInt(c.colaborador_id):null,
+      descripcion:c.descripcion,fecha:c.fecha,hora:c.hora,
+      duracion_horas:parseFloat(c.duracion_horas),traslado_minutos:parseInt(c.traslado_minutos)
+    };
+    let citaId=citaExistente?.id;
+    if(citaExistente){
+      await sb.from("citas").update(datos).eq("id",citaExistente.id);
+    }else{
+      datos.estado="agendada";datos.orden_id=prefill?.orden_id||null;datos.creado_por=usuario.id;
+      const {data:citaCreada}=await sb.from("citas").insert(datos).select().single();
+      citaId=citaCreada?.id;
+      if(prefill?.orden_id&&citaId){await sb.from("ordenes").update({mant_cita_id:citaId,mant_estado:"agendado"}).eq("id",prefill.orden_id);}
+    }
+    const msg=`📅 Cita ${citaExistente?"reagendada":"agendada"}: ${c.cliente_nombre} — ${c.fecha} ${c.hora} — ${nombreU(ingId)}`;
+    await sb.from("notificaciones").insert([{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:ingId}]);
+    if(c.cliente_telefono||prefill){
+      const msgCliente=`Su cita de servicio con Electromédica del Bajío quedó ${citaExistente?"reagendada":"agendada"} para el ${c.fecha} a las ${c.hora} con Ing. ${nombreU(ingId)}. Motivo: ${c.descripcion}`;
+      window.open(linkWhatsApp(c.cliente_telefono,msgCliente),"_blank");
+    }
+    setGuardando(false);setConfirmando(false);
+    onGuardado();
+  }
+  return (
+    <Card>
+      <div style={{fontWeight:800,color:C.marino,marginBottom:12}}>📅 {citaExistente?"Reagendar Cita":"Nueva Cita"}</div>
+      <Inp lbl="Cliente" val={c.cliente_nombre} set={v=>upd("cliente_nombre",v)} req ph="Nombre del cliente"/>
+      <Inp lbl="Ubicación" val={c.cliente_direccion} set={v=>upd("cliente_direccion",v)} req ph="Dirección del servicio"/>
+      <Inp lbl="Teléfono del cliente" val={c.cliente_telefono} set={v=>upd("cliente_telefono",v)} ph="10 dígitos" num/>
+      <TA lbl="Servicio a realizar" val={c.descripcion} set={v=>upd("descripcion",v)} req ph="Descripción abierta del servicio..."/>
+      <Inp lbl="Fecha" val={c.fecha} set={v=>upd("fecha",v)} req type="date"/>
+      <Inp lbl="Hora" val={c.hora} set={v=>upd("hora",v)} req type="time"/>
+      <Inp lbl="Duración (horas)" val={c.duracion_horas} set={v=>upd("duracion_horas",v)} req type="number"/>
+      <Inp lbl="Tiempo de traslado (min)" val={c.traslado_minutos} set={v=>upd("traslado_minutos",v)} req type="number"/>
+      {esAdmin&&(
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Ingeniero<span style={{color:C.error}}> *</span></div>
+          <select value={c.ingeniero_id} onChange={e=>upd("ingeniero_id",e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff"}}>
+            <option value="">-- Seleccionar --</option>
+            {ingenierosOrdenados.map(u=><option key={u.id} value={u.id}>{u.nombre}{clienteHistorial.includes(u.id)?" ⭐ (ya atendió a este cliente)":""}</option>)}
+          </select>
+        </div>
+      )}
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Compañero (opcional)</div>
+        <select value={c.colaborador_id} onChange={e=>upd("colaborador_id",e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff"}}>
+          <option value="">-- Ninguno --</option>
+          {usuariosApp.filter(u=>u.id!==(esAdmin?parseInt(c.ingeniero_id||0):usuario.id)).map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+        </select>
+      </div>
+      {conflicto&&(
+        <div style={{background:"#fdecea",border:`1.5px solid ${C.error}`,borderRadius:8,padding:12,marginBottom:12,fontSize:13,color:C.error}}>
+          ⚠️ Se empalma con otra cita: {conflicto.cliente_nombre} el {conflicto.fecha} a las {conflicto.hora.slice(0,5)} (dura {conflicto.duracion_horas}h + {conflicto.traslado_minutos}min de traslado). Elige otro horario.
+        </div>
+      )}
+      {error&&<div style={{color:C.error,fontSize:13,marginBottom:10}}>{error}</div>}
+      <div style={{display:"flex",gap:8}}>
+        <Btn ch="Agendar" onClick={intentarGuardar} color={C.exito} sm/>
+        <Btn ch="Cancelar" onClick={onCancelar} color={C.texto} out sm/>
+      </div>
+      {confirmando&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>¿Confirmar esta cita?</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>
+              {c.cliente_nombre}<br/>{c.fecha} a las {c.hora} ({c.duracion_horas}h + {c.traslado_minutos}min traslado)<br/>
+              {esAdmin?nombreU(parseInt(c.ingeniero_id)):usuario.nombre}{c.colaborador_id?` + ${nombreU(parseInt(c.colaborador_id))}`:""}
+            </div>
+            <Btn ch={guardando?"Guardando...":"Sí, agendar"} onClick={guardar} color={C.exito} full dis={guardando}/>
+            <Btn ch="Cancelar" onClick={()=>setConfirmando(false)} color={C.texto} out full dis={guardando}/>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function Agenda({ordenes,usuario,citas,recargarCitas,prefill,limpiarPrefill}){
   const hoy=new Date();
   const [mes,setMes]=useState(hoy.getMonth());
   const [anio,setAnio]=useState(hoy.getFullYear());
   const [dia,setDia]=useState(null);
+  const [mostrarForm,setMostrarForm]=useState(false);
+  const [citaSel,setCitaSel]=useState(null);
+  const [reagendando,setReagendando]=useState(false);
+  const [confirmCancelar,setConfirmCancelar]=useState(false);
+  const [prefillLocal,setPrefillLocal]=useState(null);
   const meses=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-  const eventos={};
+  useEffect(()=>{if(prefill)setMostrarForm(true);},[prefill]);
+  function agendarDesdeOrden(o){
+    setPrefillLocal({cliente_nombre:o.cliente_nombre,cliente_direccion:o.cliente_dir,cliente_telefono:o.cliente_tel,descripcion:`Mantenimiento preventivo — ${o.equipo_tipo}`,fecha:o.prev_proximo,orden_id:o.id});
+    setDia(null);setMostrarForm(true);
+  }
+  const eventosMant={};
   ordenes.forEach(o=>{
-    if(o.prev_proximo){
-      const d=new Date(o.prev_proximo);
+    if(o.prev_proximo&&!o.mant_cita_id){
+      const d=new Date(o.prev_proximo+"T00:00:00");
       if(!isNaN(d)){
         const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-        if(!eventos[k])eventos[k]=[];
-        eventos[k].push(o);
+        if(!eventosMant[k])eventosMant[k]=[];
+        eventosMant[k].push(o);
       }
     }
+  });
+  const citasActivas=citas.filter(c=>c.estado!=="cancelada");
+  const citasPorDia={};
+  citasActivas.forEach(c=>{
+    const d=new Date(c.fecha+"T00:00:00");
+    if(isNaN(d))return;
+    const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    (citasPorDia[k]=citasPorDia[k]||[]).push(c);
   });
   const primerDia=new Date(anio,mes,1).getDay();
   const diasMes=new Date(anio,mes+1,0).getDate();
@@ -1268,61 +1510,134 @@ function Agenda({ordenes}){
   for(let d=1;d<=diasMes;d++)celdas.push(d);
   while(celdas.length%7!==0)celdas.push(null);
   const esHoy=d=>d===hoy.getDate()&&mes===hoy.getMonth()&&anio===hoy.getFullYear();
-  const tieneEvento=d=>!!eventos[`${anio}-${mes}-${d}`];
-  const eventosDelDia=dia?eventos[`${anio}-${mes}-${dia}`]||[]:[];
+  const claveDia=d=>`${anio}-${mes}-${d}`;
+  const citasDelDia=dia?citasPorDia[claveDia(dia)]||[]:[];
+  const mantDelDia=dia?eventosMant[claveDia(dia)]||[]:[];
   function prevMes(){if(mes===0){setMes(11);setAnio(a=>a-1);}else setMes(m=>m-1);setDia(null);}
   function nextMes(){if(mes===11){setMes(0);setAnio(a=>a+1);}else setMes(m=>m+1);setDia(null);}
+  function cerrarForm(){setMostrarForm(false);setPrefillLocal(null);limpiarPrefill&&limpiarPrefill();}
+  function alGuardar(){cerrarForm();recargarCitas();}
+  async function cancelarCita(){
+    await sb.from("citas").update({estado:"cancelada"}).eq("id",citaSel.id);
+    const msg=`❌ Cita cancelada: ${citaSel.cliente_nombre} — ${citaSel.fecha} ${citaSel.hora.slice(0,5)}`;
+    await sb.from("notificaciones").insert([{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:citaSel.ingeniero_id}]);
+    if(citaSel.cliente_telefono){
+      window.open(linkWhatsApp(citaSel.cliente_telefono,`Su cita programada para el ${citaSel.fecha} a las ${citaSel.hora.slice(0,5)} ha sido cancelada. Contáctenos para reprogramar.`),"_blank");
+    }
+    setConfirmCancelar(false);setCitaSel(null);recargarCitas();
+  }
+  const pendientesAgendar=ordenes.filter(o=>o.prev_realiza&&o.prev_proximo&&!o.mant_cita_id&&o.mant_estado!=="no_realiza");
   return (
     <div style={{padding:16,paddingBottom:80}}>
-      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>📅 Agenda</div>
-      <div style={{background:C.blanco,borderRadius:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",overflow:"hidden",marginBottom:16}}>
-        <div style={{background:C.marino,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span onClick={prevMes} style={{color:"#fff",cursor:"pointer",fontSize:22,padding:"0 8px"}}>‹</span>
-          <div style={{color:"#fff",fontWeight:800,fontSize:17}}>{meses[mes]} {anio}</div>
-          <span onClick={nextMes} style={{color:"#fff",cursor:"pointer",fontSize:22,padding:"0 8px"}}>›</span>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:C.gris}}>
-          {["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"].map(d=><div key={d} style={{textAlign:"center",padding:"8px 0",fontSize:11,fontWeight:700,color:C.texto}}>{d}</div>)}
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
-          {celdas.map((d,i)=>{
-            const sel=d===dia;const hoyF=d&&esHoy(d);const ev=d&&tieneEvento(d);
-            return (
-              <div key={i} onClick={()=>d&&setDia(d)} style={{minHeight:44,padding:"6px 4px",textAlign:"center",cursor:d?"pointer":"default",borderBottom:`1px solid ${C.borde}`,borderRight:i%7!==6?`1px solid ${C.borde}`:"none",background:sel?C.marino:"#fff"}}>
-                {d&&(
-                  <div>
-                    <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto",background:hoyF?C.cielo:"transparent",color:sel?"#fff":hoyF?"#fff":C.texto,fontWeight:hoyF||sel?800:400,fontSize:14}}>{d}</div>
-                    {ev&&<div style={{width:6,height:6,borderRadius:"50%",margin:"2px auto 0",background:sel?"#FFF3B0":colorU(eventos[`${anio}-${mes}-${d}`][0].creado_por)}}/>}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{color:C.marino,fontWeight:800,fontSize:18}}>📅 Agenda</div>
+        {!mostrarForm&&<button onClick={()=>setMostrarForm(true)} style={{width:36,height:36,borderRadius:"50%",background:C.marino,color:"#fff",border:"none",fontSize:20,fontWeight:700,cursor:"pointer",lineHeight:1}}>+</button>}
       </div>
-      {dia&&(
-        <div>
-          <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:12}}>{dia} de {meses[mes]} de {anio}</div>
-          {eventosDelDia.length===0
-            ?<div style={{background:C.blanco,borderRadius:12,padding:20,textAlign:"center",color:C.texto}}>Sin mantenimientos para este día.</div>
-            :eventosDelDia.map(o=>(
-              <div key={o.id} style={{background:C.blanco,borderRadius:12,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",borderLeft:`4px solid ${colorU(o.creado_por)}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{fontWeight:800,color:C.marino}}>Orden #{o.folio}</div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,background:colorU(o.creado_por),borderRadius:14,padding:"3px 10px"}}>
-                    <span style={{width:16,height:16,borderRadius:"50%",background:"rgba(255,255,255,0.35)",color:"#fff",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{o.creado_por}</span>
-                    <span style={{fontSize:11,color:"#fff",fontWeight:700}}>{nombreU(o.creado_por).split(" ")[0]}</span>
+      {mostrarForm&&<FormularioCita usuario={usuario} citas={citas} onCancelar={cerrarForm} onGuardado={alGuardar} prefill={prefill||prefillLocal}/>}
+      {!mostrarForm&&(
+        <>
+          <div style={{background:C.blanco,borderRadius:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",overflow:"hidden",marginBottom:16}}>
+            <div style={{background:C.marino,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span onClick={prevMes} style={{color:"#fff",cursor:"pointer",fontSize:22,padding:"0 8px"}}>‹</span>
+              <div style={{color:"#fff",fontWeight:800,fontSize:17}}>{meses[mes]} {anio}</div>
+              <span onClick={nextMes} style={{color:"#fff",cursor:"pointer",fontSize:22,padding:"0 8px"}}>›</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:C.gris}}>
+              {["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"].map(d=><div key={d} style={{textAlign:"center",padding:"8px 0",fontSize:11,fontWeight:700,color:C.texto}}>{d}</div>)}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+              {celdas.map((d,i)=>{
+                const sel=d===dia;const hoyF=d&&esHoy(d);
+                const citasD=d?citasPorDia[claveDia(d)]:null;
+                const mantD=d?eventosMant[claveDia(d)]:null;
+                return (
+                  <div key={i} onClick={()=>d&&setDia(d)} style={{minHeight:44,padding:"6px 4px",textAlign:"center",cursor:d?"pointer":"default",borderBottom:`1px solid ${C.borde}`,borderRight:i%7!==6?`1px solid ${C.borde}`:"none",background:sel?C.marino:"#fff"}}>
+                    {d&&(
+                      <div>
+                        <div style={{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto",background:hoyF?C.cielo:"transparent",color:sel?"#fff":hoyF?"#fff":C.texto,fontWeight:hoyF||sel?800:400,fontSize:14}}>{d}</div>
+                        <div style={{display:"flex",justifyContent:"center",gap:2,marginTop:2}}>
+                          {citasD&&<div style={{width:6,height:6,borderRadius:"50%",background:sel?"#FFF3B0":colorU(citasD[0].ingeniero_id)}}/>}
+                          {mantD&&<div style={{width:6,height:6,borderRadius:"50%",background:sel?"#FFF3B0":C.amarillo,border:`1px solid ${C.texto}`}}/>}
+                        </div>
+                      </div>
+                    )}
                   </div>
+                );
+              })}
+            </div>
+          </div>
+          {dia&&(
+            <div>
+              <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:12}}>{dia} de {meses[mes]} de {anio}</div>
+              {citasDelDia.length===0&&mantDelDia.length===0&&<div style={{background:C.blanco,borderRadius:12,padding:20,textAlign:"center",color:C.texto,marginBottom:12}}>Sin citas para este día.</div>}
+              {citasDelDia.map(cit=>(
+                <div key={cit.id} onClick={()=>setCitaSel(cit)} style={{background:C.blanco,borderRadius:12,padding:16,marginBottom:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",borderLeft:`4px solid ${colorU(cit.ingeniero_id)}`,cursor:"pointer"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{fontWeight:800,color:C.marino}}>{cit.hora.slice(0,5)} — {cit.cliente_nombre}</div>
+                    <div style={{fontSize:11,color:"#fff",background:colorU(cit.ingeniero_id),borderRadius:14,padding:"3px 10px",fontWeight:700}}>{nombreU(cit.ingeniero_id).split(" ")[0]}{cit.colaborador_id?` + ${nombreU(cit.colaborador_id).split(" ")[0]}`:""}</div>
+                  </div>
+                  <div style={{fontSize:13,color:C.texto,marginTop:4}}>{cit.descripcion}</div>
+                  <div style={{fontSize:12,color:"#aaa"}}>{cit.cliente_direccion} | {cit.duracion_horas}h + {cit.traslado_minutos}min traslado</div>
                 </div>
-                <div style={{fontSize:14,color:C.texto,marginTop:4}}>{o.cliente_nombre}</div>
-                <div style={{fontSize:13,color:"#aaa"}}>{o.equipo_tipo} | {o.equipo_marca} {o.equipo_modelo}</div>
-                <div style={{background:C.amarillo,borderRadius:8,padding:8,marginTop:8,fontSize:13,color:"#7D6608"}}>🔧 Mantenimiento Preventivo Programado</div>
-              </div>
-            ))
-          }
+              ))}
+              {mantDelDia.map(o=>(
+                <div key={o.id} style={{background:C.amarillo,borderRadius:12,padding:16,marginBottom:12,border:"1px solid #F0CA00"}}>
+                  <div style={{fontWeight:800,color:"#7D6608"}}>🔧 Mantenimiento programado — Orden #{o.folio}</div>
+                  <div style={{fontSize:13,color:"#7D6608",marginTop:4}}>{o.cliente_nombre} — {o.equipo_tipo}</div>
+                  <div style={{marginTop:8}}><Btn ch="📅 Agendar" onClick={()=>agendarDesdeOrden(o)} color={C.marino} sm/></div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!dia&&<div style={{background:C.blanco,borderRadius:12,padding:16,fontSize:13,color:C.texto,textAlign:"center",marginBottom:16}}>Toca un día para ver citas y mantenimientos.<br/><span style={{fontSize:12,color:"#aaa"}}>Puntos de color = citas agendadas. Puntos amarillos = mantenimiento pendiente de agendar.</span></div>}
+          {pendientesAgendar.length>0&&(
+            <div style={{marginTop:8}}>
+              <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:10}}>⏳ Pendientes de agendar</div>
+              {pendientesAgendar.map(o=>(
+                <div key={o.id} style={{background:C.blanco,borderRadius:12,padding:14,marginBottom:10,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontWeight:700,color:C.marino,fontSize:14}}>{o.cliente_nombre}</div>
+                    <div style={{fontSize:12,color:"#aaa"}}>{o.equipo_tipo} — próximo: {o.prev_proximo}</div>
+                  </div>
+                  <Btn ch="📅 Agendar" onClick={()=>agendarDesdeOrden(o)} color={C.marino} sm/>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      {citaSel&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:360,width:"100%"}}>
+            {!reagendando&&!confirmCancelar&&(
+              <>
+                <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>{citaSel.cliente_nombre}</div>
+                <div style={{fontSize:13,color:C.texto,marginBottom:4}}>{citaSel.fecha} a las {citaSel.hora.slice(0,5)} ({citaSel.duracion_horas}h)</div>
+                <div style={{fontSize:13,color:C.texto,marginBottom:4}}>{citaSel.cliente_direccion}</div>
+                <div style={{fontSize:13,color:C.texto,marginBottom:16}}>{citaSel.descripcion}</div>
+                <Btn ch="🔁 Reagendar" onClick={()=>setReagendando(true)} color={C.cielo} full/>
+                <Btn ch="❌ Cancelar cita" onClick={()=>setConfirmCancelar(true)} color={C.error} full/>
+                <Btn ch="Cerrar" onClick={()=>setCitaSel(null)} color={C.texto} out full/>
+              </>
+            )}
+            {confirmCancelar&&(
+              <>
+                <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Cancelar esta cita?</div>
+                <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Se notificará al ingeniero, admin y cliente.</div>
+                <Btn ch="Sí, cancelar" onClick={cancelarCita} color={C.error} full/>
+                <Btn ch="Volver" onClick={()=>setConfirmCancelar(false)} color={C.texto} out full/>
+              </>
+            )}
+          </div>
         </div>
       )}
-      {!dia&&<div style={{background:C.blanco,borderRadius:12,padding:16,fontSize:13,color:C.texto,textAlign:"center"}}>Toca un día para ver mantenimientos.<br/><span style={{fontSize:12,color:"#aaa"}}>Puntos azules = servicios programados.</span></div>}
+      {citaSel&&reagendando&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}>
+          <div style={{width:"100%",maxWidth:400}}>
+            <FormularioCita usuario={usuario} citas={citas} citaExistente={citaSel} onCancelar={()=>{setReagendando(false);setCitaSel(null);}} onGuardado={()=>{setReagendando(false);setCitaSel(null);recargarCitas();}}/>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1727,9 +2042,33 @@ function App(){
   const [oe,setOe]=useState(null);
   const [loading,setLoading]=useState(false);
   const [historial,setHistorial]=useState([]);
+  const [citas,setCitas]=useState([]);
+  const [citaPrefill,setCitaPrefill]=useState(null);
+  const [mantPopup,setMantPopup]=useState(null);
   const [sucia,setSucia]=useState(false);
   const [confirmSalida,setConfirmSalida]=useState(null);
   const guardarBorradorRef=useRef(null);
+  function irAgendarDesdeOrden(orden){
+    setCitaPrefill({
+      cliente_nombre:orden.cliente_nombre,cliente_direccion:orden.cliente_dir,cliente_telefono:orden.cliente_tel,
+      descripcion:`Mantenimiento preventivo — ${orden.equipo_tipo}`,fecha:orden.prev_proximo,orden_id:orden.id
+    });
+    setVista("agenda");
+  }
+  async function resolverMantPopup(accion){
+    const orden=mantPopup.orden;
+    if(accion==="agendar"){
+      irAgendarDesdeOrden(orden);
+    }else if(accion==="pendiente"){
+      await sb.from("ordenes").update({mant_estado:"pendiente"}).eq("id",orden.id);
+    }else if(accion==="no_realiza"){
+      await sb.from("ordenes").update({mant_estado:"no_realiza"}).eq("id",orden.id);
+      const msg=`Le informamos que el mantenimiento programado para ${orden.prev_proximo} no se realizará. Si lo requiere, contáctenos.`;
+      const link=orden.envio_wa?linkWhatsApp(orden.envio_wa,msg):linkCorreo(orden.envio_email,"Mantenimiento no realizado",msg);
+      window.open(link,"_blank");
+    }
+    setMantPopup(null);
+  }
   function intentarNavegar(destino){
     if(sucia&&vista==="nueva_orden"){setConfirmSalida({destino});}
     else{destino();}
@@ -1755,6 +2094,7 @@ function App(){
     return ()=>window.removeEventListener("beforeunload",h);
   },[sucia]);
   async function cargarOrdenes(){setLoading(true);const {data}=await sb.from("ordenes").select("*").order("id",{ascending:false});if(data)setOrdenes(data);setLoading(false);}
+  async function cargarCitas(){const {data}=await sb.from("citas").select("*").order("fecha").order("hora");if(data)setCitas(data);}
   async function cargarNotifs(rol,uid){
     const ocultos=await idsOcultosPara(uid);
     let q=sb.from("notificaciones").select("*").eq("leida",false).eq("leida_historial",false).order("fecha",{ascending:false});
@@ -1771,7 +2111,12 @@ function App(){
     const {data}=await q;
     if(data)setHistorial(data);
   }
-  useEffect(()=>{if(usuario){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}},[usuario]);
+  useEffect(()=>{
+    if(usuario){
+      cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);cargarCitas();
+      revisarEscalacionMantenimiento(usuario,setMantPopup);
+    }
+  },[usuario]);
   function login(u){sessionStorage.setItem("emb_u",JSON.stringify(u));setUsuario(u);setVista("dashboard");setOe(null);setSelec(null);}
   function logout(){sessionStorage.removeItem("emb_u");setUsuario(null);}
   function refrescar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);setSelec(null);setVista("ordenes");}
@@ -1782,11 +2127,11 @@ function App(){
     <div style={{minHeight:"100vh",background:C.gris}}>
       <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={pedirLogout} onLogoClick={()=>intentarNavegar(()=>{setOe(null);setSelec(null);setVista("dashboard");})}/>
       <div style={{maxWidth:600,margin:"0 auto"}}>
-        {vista==="dashboard"&&<Dashboard usuario={usuario} ordenes={ordenes} notifs={notifs} setVista={setVista} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}}/>}
+        {vista==="dashboard"&&<Dashboard usuario={usuario} ordenes={ordenes} notifs={notifs} citas={citas} setVista={setVista} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}} recargarCitas={cargarCitas} onAgendarOrden={irAgendarDesdeOrden}/>}
         {vista==="nueva_orden"&&<NuevaOrden usuario={usuario} onDone={refrescar} oe={oe} setSucia={setSucia} guardarBorradorRef={guardarBorradorRef} intentarSalir={intentarNavegar}/>}
         {vista==="ordenes"&&!selec&&<ListaOrdenes ordenes={ordenes} onSel={o=>setSelec(o)} loading={loading} onNueva={()=>{setOe(null);setVista("nueva_orden");}}/>}
         {vista==="ordenes"&&selec&&<DetalleOrden orden={selec} usuario={usuario} onVolver={()=>setSelec(null)} onRefrescar={soloRecargar} onEditar={o=>{setOe(o);setSelec(null);setVista("nueva_orden");}}/>}
-        {vista==="agenda"&&<Agenda ordenes={ordenes}/>}
+        {vista==="agenda"&&<Agenda ordenes={ordenes} usuario={usuario} citas={citas} recargarCitas={cargarCitas} prefill={citaPrefill} limpiarPrefill={()=>setCitaPrefill(null)}/>}
         {vista==="directorio"&&<Directorio usuario={usuario}/>}
         {vista==="config"&&<Config usuario={usuario} onLogout={pedirLogout} historial={historial} onVerHistorial={()=>setVista("historial_completo")}/>}
         {vista==="historial_completo"&&<HistorialCompleto usuario={usuario} onVolver={()=>setVista("config")}/>}
@@ -1800,6 +2145,19 @@ function App(){
             <Btn ch="💾 Guardar y salir" onClick={confGuardarYSalir} color={C.exito} full/>
             <Btn ch="🚫 No guardar" onClick={confNoGuardar} color={C.error} out full/>
             <Btn ch="Cancelar" onClick={()=>setConfirmSalida(null)} color={C.texto} out full/>
+          </div>
+        </div>
+      )}
+      {mantPopup&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:360,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>🔧 Próximo mantenimiento</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>
+              El mantenimiento de <strong>{mantPopup.orden.cliente_nombre}</strong> ({mantPopup.orden.equipo_tipo}) está programado para <strong>{mantPopup.orden.prev_proximo}</strong> ({mantPopup.etapa==="2sem"?"faltan 2 semanas":mantPopup.etapa==="1.5sem"?"faltan 1.5 semanas":"falta 1 semana"}). ¿Qué deseas hacer?
+            </div>
+            <Btn ch="📅 Agendar" onClick={()=>resolverMantPopup("agendar")} color={C.exito} full/>
+            {mantPopup.etapa!=="1sem"&&<Btn ch="⏳ Pendiente" onClick={()=>resolverMantPopup("pendiente")} color={C.cielo} out full/>}
+            {mantPopup.etapa!=="2sem"&&<Btn ch="🚫 No se realiza" onClick={()=>resolverMantPopup("no_realiza")} color={C.error} out full/>}
           </div>
         </div>
       )}
