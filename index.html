@@ -93,6 +93,32 @@ function comoArray(v){
   if(typeof v==="string"&&v){try{const p=JSON.parse(v);return Array.isArray(p)?p:[];}catch(e){return [];}}
   return [];
 }
+const OFFLINE_KEY="emb_ordenes_pendientes";
+function leerPendientesOffline(){try{return JSON.parse(localStorage.getItem(OFFLINE_KEY)||"[]");}catch(e){return [];}}
+function guardarPendientesOffline(lista){localStorage.setItem(OFFLINE_KEY,JSON.stringify(lista));}
+function agregarPendienteOffline(item){
+  const lista=leerPendientesOffline();
+  lista.push({...item,id_local:Date.now()+"_"+Math.random().toString(36).slice(2),fecha_cola:new Date().toISOString()});
+  guardarPendientesOffline(lista);
+}
+async function sincronizarPendientesOffline(){
+  const lista=leerPendientesOffline();
+  if(lista.length===0)return {ok:0,fallidos:0};
+  const restantes=[];
+  let ok=0;
+  for(const item of lista){
+    try{
+      const {error}=await sb.from("ordenes").insert(item.datos);
+      if(error)throw error;
+      ok++;
+      await sb.from("notificaciones").insert({mensaje:`${item.datos.estado==="completada"?"✅":"💾"} Orden ${item.tipo==="general"?"General ":""}#${item.datos.folio} — ${item.datos.cliente_nombre||"sin cliente"} (subida desde modo sin conexión)`});
+    }catch(e){
+      restantes.push(item);
+    }
+  }
+  guardarPendientesOffline(restantes);
+  return {ok,fallidos:restantes.length};
+}
 async function generarPDFOrden(orden){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:"pt",format:"letter"});
@@ -575,8 +601,14 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
   );
 }
 
-function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recargarCitas,onAgendarOrden}){
+function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recargarCitas,onAgendarOrden,pendientesOffline,onSincronizar}){
   const [confirmCompletar,setConfirmCompletar]=useState(null);
+  const [sincronizando,setSincronizando]=useState(false);
+  async function sincronizarAhora(){
+    setSincronizando(true);
+    await onSincronizar&&onSincronizar();
+    setSincronizando(false);
+  }
   const stats=[
     {l:"Total",v:ordenes.length,col:C.marino},
     {l:"Borrador",v:ordenes.filter(o=>o.estado==="borrador").length,col:"#7D6608"},
@@ -600,6 +632,12 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
     <div style={{padding:16}}>
       <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:4}}>Bienvenida, {usuario.nombre.split(" ")[0]} 👋</div>
       <div style={{color:C.texto,fontSize:13,marginBottom:20}}>{ahora()}</div>
+      {pendientesOffline>0&&(
+        <div style={{background:"#FFF3B0",border:"1px solid #F0CA00",borderRadius:10,padding:12,marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <div style={{fontSize:13,color:"#7D6608",fontWeight:700}}>📴 {pendientesOffline} orden{pendientesOffline!==1?"es":""} guardada{pendientesOffline!==1?"s":""} sin conexión, pendiente{pendientesOffline!==1?"s":""} de subir</div>
+          <Btn ch={sincronizando?"Subiendo...":"🔄 Reintentar ahora"} onClick={sincronizarAhora} color={"#7D6608"} sm dis={sincronizando}/>
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
         {stats.map(s=>(
           <div key={s.l} style={{background:C.blanco,borderRadius:12,padding:16,textAlign:"center",boxShadow:"0 2px 6px rgba(0,0,0,0.07)"}}>
@@ -756,8 +794,29 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
       equipo_tipo:`GENERAL: ${o.tipo_servicio}`,equipo:o.equipo,lev_obs:o.descripcion,corr_descripcion:o.materiales,
       fotos:o.fotos,firma_nombre:o.firma_nombre,firma_imagen,
       envio_wa:o.envio_wa,envio_email:o.envio_email};
-    if(oe){await sb.from("ordenes").update(datos).eq("id",oe.id);}
-    else{await sb.from("ordenes").insert(datos);}
+    if(oe){
+      await sb.from("ordenes").update(datos).eq("id",oe.id);
+    }else{
+      if(!navigator.onLine){
+        agregarPendienteOffline({tipo:"general",datos});
+        guardadoOkRef.current=true;
+        setSaving(false);setSucia&&setSucia(false);
+        alert("Sin conexión: la orden se guardó en este dispositivo y se subirá automáticamente cuando vuelva el internet.");
+        onDone();
+        return;
+      }
+      try{
+        const {error}=await sb.from("ordenes").insert(datos);
+        if(error)throw error;
+      }catch(e){
+        agregarPendienteOffline({tipo:"general",datos});
+        guardadoOkRef.current=true;
+        setSaving(false);setSucia&&setSucia(false);
+        alert("No se pudo conectar a internet: la orden se guardó en este dispositivo y se subirá automáticamente cuando vuelva la conexión.");
+        onDone();
+        return;
+      }
+    }
     guardadoOkRef.current=true;
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden General #${folio} — ${o.cliente_nombre||"sin cliente"}`});
     setSaving(false);
@@ -913,8 +972,29 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     const ubicacion=await obtenerUbicacion();
     const firma_imagen=!firmaTocada?(oe?.firma_imagen||null):(firmaDibujada&&firmaCanvasRef.current?firmaCanvasRef.current.toDataURL("image/png"):null);
     const datos={folio,estado,creado_por:usuario.id,fecha_guardado:new Date().toISOString(),ubicacion,...o,firma_imagen};
-    if(oe){await sb.from("ordenes").update(datos).eq("id",oe.id);}
-    else{await sb.from("ordenes").insert(datos);}
+    if(oe){
+      await sb.from("ordenes").update(datos).eq("id",oe.id);
+    }else{
+      if(!navigator.onLine){
+        agregarPendienteOffline({tipo:"mant",datos});
+        guardadoOkRef.current=true;
+        setSaving(false);setSucia&&setSucia(false);
+        alert("Sin conexión: la orden se guardó en este dispositivo y se subirá automáticamente cuando vuelva el internet.");
+        onDone();
+        return;
+      }
+      try{
+        const {error}=await sb.from("ordenes").insert(datos);
+        if(error)throw error;
+      }catch(e){
+        agregarPendienteOffline({tipo:"mant",datos});
+        guardadoOkRef.current=true;
+        setSaving(false);setSucia&&setSucia(false);
+        alert("No se pudo conectar a internet: la orden se guardó en este dispositivo y se subirá automáticamente cuando vuelva la conexión.");
+        onDone();
+        return;
+      }
+    }
     guardadoOkRef.current=true;
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden #${folio} — ${o.cliente_nombre||"sin cliente"} | ${o.equipo_tipo}`});
     setSaving(false);
@@ -2082,6 +2162,17 @@ function App(){
   const [citaPrefill,setCitaPrefill]=useState(null);
   const [mantPopup,setMantPopup]=useState(null);
   const [confirmNoRealiza,setConfirmNoRealiza]=useState(false);
+  const [pendientesOffline,setPendientesOffline]=useState(()=>leerPendientesOffline().length);
+  async function intentarSincronizar(){
+    if(!navigator.onLine)return;
+    const {ok}=await sincronizarPendientesOffline();
+    setPendientesOffline(leerPendientesOffline().length);
+    if(ok>0&&usuario){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);}
+  }
+  useEffect(()=>{
+    window.addEventListener("online",intentarSincronizar);
+    return ()=>window.removeEventListener("online",intentarSincronizar);
+  },[usuario]);
   const [sucia,setSucia]=useState(false);
   const [confirmSalida,setConfirmSalida]=useState(null);
   const guardarBorradorRef=useRef(null);
@@ -2125,6 +2216,7 @@ function App(){
   }
   function pedirLogout(){intentarNavegar(logout);}
   useEffect(()=>{if(vista==="nueva_orden")setSucia(false);},[vista]);
+  useEffect(()=>{setPendientesOffline(leerPendientesOffline().length);},[vista]);
   useEffect(()=>{
     function h(e){if(sucia){e.preventDefault();e.returnValue="";}}
     window.addEventListener("beforeunload",h);
@@ -2152,6 +2244,7 @@ function App(){
     if(usuario){
       cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);cargarCitas();
       revisarEscalacionMantenimiento(usuario,setMantPopup);
+      intentarSincronizar();
     }
   },[usuario]);
   function login(u){sessionStorage.setItem("emb_u",JSON.stringify(u));setUsuario(u);setVista("dashboard");setOe(null);setSelec(null);}
@@ -2164,7 +2257,7 @@ function App(){
     <div style={{minHeight:"100vh",background:C.gris}}>
       <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={pedirLogout} onLogoClick={()=>intentarNavegar(()=>{setOe(null);setSelec(null);setVista("dashboard");})}/>
       <div style={{maxWidth:600,margin:"0 auto"}}>
-        {vista==="dashboard"&&<Dashboard usuario={usuario} ordenes={ordenes} notifs={notifs} citas={citas} setVista={setVista} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}} recargarCitas={cargarCitas} onAgendarOrden={irAgendarDesdeOrden}/>}
+        {vista==="dashboard"&&<Dashboard usuario={usuario} ordenes={ordenes} notifs={notifs} citas={citas} setVista={setVista} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}} recargarCitas={cargarCitas} onAgendarOrden={irAgendarDesdeOrden} pendientesOffline={pendientesOffline} onSincronizar={intentarSincronizar}/>}
         {vista==="nueva_orden"&&<NuevaOrden usuario={usuario} onDone={refrescar} oe={oe} setSucia={setSucia} guardarBorradorRef={guardarBorradorRef} intentarSalir={intentarNavegar}/>}
         {vista==="ordenes"&&!selec&&<ListaOrdenes ordenes={ordenes} onSel={o=>setSelec(o)} loading={loading} onNueva={()=>{setOe(null);setVista("nueva_orden");}}/>}
         {vista==="ordenes"&&selec&&<DetalleOrden orden={selec} usuario={usuario} onVolver={()=>setSelec(null)} onRefrescar={soloRecargar} onEditar={o=>{setOe(o);setSelec(null);setVista("nueva_orden");}}/>}
@@ -2213,6 +2306,12 @@ function App(){
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>{
+    navigator.serviceWorker.register("sw.js").catch(()=>{});
+  });
+}
 
 </script>
 </body>
