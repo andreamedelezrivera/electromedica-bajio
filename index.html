@@ -1194,6 +1194,7 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
   const esBorrador=orden.estado==="borrador";
   const esEnProceso=orden.estado==="en_proceso";
   const esDueñoBorrador=esBorrador&&orden.creado_por===usuario.id;
+  const esColaborador=comoArray(orden.colaboradores).includes(usuario.id);
   async function descargarPDF(){
     setGenerandoPDF(true);
     try{await generarPDFOrden(orden);}
@@ -1238,9 +1239,9 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
           <Badge tipo={orden.estado}/>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {(esAdmin||esDueñoBorrador)&&<Btn ch="✏️ Editar" onClick={()=>onEditar(orden)} color={C.cielo} sm/>}
+          {(esAdmin||esDueñoBorrador||esColaborador)&&<Btn ch="✏️ Editar" onClick={()=>onEditar(orden)} color={C.cielo} sm/>}
           {(esAdmin||esDueñoBorrador)&&<Btn ch="🗑️ Eliminar" onClick={()=>setConfirmEliminar(true)} color={C.error} sm/>}
-          {!esAdmin&&!esDueñoBorrador&&!esEnProceso&&!solicitado&&<Btn ch="✏️ Solicitar permiso" onClick={solicitarPermiso} color={C.cielo} sm/>}
+          {!esAdmin&&!esDueñoBorrador&&!esColaborador&&!esEnProceso&&!solicitado&&<Btn ch="✏️ Solicitar permiso" onClick={solicitarPermiso} color={C.cielo} sm/>}
           {!esAdmin&&solicitado&&<div style={{background:"#D5F5E3",color:"#1E8449",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700}}>✓ Solicitud enviada</div>}
         </div>
       </div>
@@ -1539,7 +1540,14 @@ function Agenda({ordenes,usuario,citas,recargarCitas,prefill,limpiarPrefill}){
           <div style={{background:C.blanco,borderRadius:12,boxShadow:"0 2px 8px rgba(0,0,0,0.08)",overflow:"hidden",marginBottom:16}}>
             <div style={{background:C.marino,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span onClick={prevMes} style={{color:"#fff",cursor:"pointer",fontSize:22,padding:"0 8px"}}>‹</span>
-              <div style={{color:"#fff",fontWeight:800,fontSize:17}}>{meses[mes]} {anio}</div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <select value={mes} onChange={e=>{setMes(parseInt(e.target.value));setDia(null);}} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none",borderRadius:6,padding:"4px 6px",fontSize:14,fontWeight:700}}>
+                  {meses.map((m,i)=><option key={m} value={i} style={{color:"#000"}}>{m}</option>)}
+                </select>
+                <select value={anio} onChange={e=>{setAnio(parseInt(e.target.value));setDia(null);}} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"none",borderRadius:6,padding:"4px 6px",fontSize:14,fontWeight:700}}>
+                  {Array.from({length:5},(_,i)=>hoy.getFullYear()-1+i).map(a=><option key={a} value={a} style={{color:"#000"}}>{a}</option>)}
+                </select>
+              </div>
               <span onClick={nextMes} style={{color:"#fff",cursor:"pointer",fontSize:22,padding:"0 8px"}}>›</span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:C.gris}}>
@@ -1934,6 +1942,8 @@ function Directorio({usuario}){
   const [nuevo,setNuevo]=useState({nombre:"",direccion:"",ciudad:"",telefono:"",email:""});
   const [confirmNuevo,setConfirmNuevo]=useState(false);
   const [confirmBorrar,setConfirmBorrar]=useState(null);
+  const [editando,setEditando]=useState(null);
+  const [edit,setEdit]=useState({nombre:"",direccion:"",ciudad:"",telefono:"",email:""});
   async function cargar(){
     setLoading(true);
     const {data:cli}=await sb.from("clientes").select("*").order("nombre");
@@ -1954,6 +1964,15 @@ function Directorio({usuario}){
   async function borrarCliente(id){
     await sb.from("clientes").delete().eq("id",id);
     setConfirmBorrar(null);
+    cargar();
+  }
+  function empezarEditar(c){
+    setEditando(c.id);
+    setEdit({nombre:c.nombre||"",direccion:c.direccion||"",ciudad:c.ciudad||"",telefono:c.telefono||"",email:c.email||""});
+  }
+  async function guardarEdicion(){
+    await sb.from("clientes").update({nombre:edit.nombre,direccion:edit.direccion||null,ciudad:edit.ciudad||null,telefono:edit.telefono||null,email:edit.email||null}).eq("id",editando);
+    setEditando(null);
     cargar();
   }
   return (
@@ -1987,14 +2006,31 @@ function Directorio({usuario}){
           {clientesFiltrados.length===0&&<div style={{textAlign:"center",color:C.texto,padding:30,background:C.blanco,borderRadius:12}}>Sin clientes {busqueda?"que coincidan":"registrados"}.</div>}
           {clientesFiltrados.map(c=>(
             <Card key={c.id}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              {editando===c.id?(
                 <div>
-                  <div style={{fontWeight:700,color:C.marino}}>{c.nombre}</div>
-                  <div style={{fontSize:13,color:C.texto}}>{c.direccion} {c.ciudad?`| ${c.ciudad}`:""}</div>
-                  <div style={{fontSize:13,color:C.texto}}>{c.telefono} {c.email?`| ${c.email}`:""}</div>
+                  <Inp lbl="Nombre" val={edit.nombre} set={v=>setEdit(p=>({...p,nombre:v}))} req ph="Nombre del cliente"/>
+                  <Inp lbl="Dirección" val={edit.direccion} set={v=>setEdit(p=>({...p,direccion:v}))} ph="Calle, número, colonia"/>
+                  <Inp lbl="Ciudad" val={edit.ciudad} set={v=>setEdit(p=>({...p,ciudad:v}))} ph="Ciudad, estado"/>
+                  <Inp lbl="Teléfono" val={edit.telefono} set={v=>setEdit(p=>({...p,telefono:v}))} ph="10 dígitos" num/>
+                  <Inp lbl="Correo" val={edit.email} set={v=>setEdit(p=>({...p,email:v}))} ph="correo@ejemplo.com" type="email"/>
+                  <div style={{display:"flex",gap:8}}>
+                    <Btn ch="✓ Guardar" onClick={guardarEdicion} color={C.exito} sm dis={!edit.nombre.trim()}/>
+                    <Btn ch="Cancelar" onClick={()=>setEditando(null)} color={C.texto} out sm/>
+                  </div>
                 </div>
-                {usuario.rol==="admin"&&<span onClick={()=>setConfirmBorrar(c)} style={{cursor:"pointer",color:C.error,fontSize:18}}>🗑️</span>}
-              </div>
+              ):(
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div>
+                    <div style={{fontWeight:700,color:C.marino}}>{c.nombre}</div>
+                    <div style={{fontSize:13,color:C.texto}}>{c.direccion} {c.ciudad?`| ${c.ciudad}`:""}</div>
+                    <div style={{fontSize:13,color:C.texto}}>{c.telefono} {c.email?`| ${c.email}`:""}</div>
+                  </div>
+                  <div style={{display:"flex",gap:10,flexShrink:0}}>
+                    <span onClick={()=>empezarEditar(c)} style={{cursor:"pointer",color:C.cielo,fontSize:18}}>✏️</span>
+                    {usuario.rol==="admin"&&<span onClick={()=>setConfirmBorrar(c)} style={{cursor:"pointer",color:C.error,fontSize:18}}>🗑️</span>}
+                  </div>
+                </div>
+              )}
             </Card>
           ))}
         </div>
