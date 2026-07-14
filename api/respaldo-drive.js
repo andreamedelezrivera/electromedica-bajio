@@ -29,6 +29,16 @@ async function obtenerOCrearCarpeta(drive, nombre, parentId) {
   });
   return creada.data.id;
 }
+async function obtenerOCrearCarpetaRaiz(drive, nombre) {
+  const q = `name='${nombre.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const listado = await drive.files.list({ q, fields: "files(id,name)" });
+  if (listado.data.files && listado.data.files.length > 0) return listado.data.files[0].id;
+  const creada = await drive.files.create({
+    resource: { name: nombre, mimeType: "application/vnd.google-apps.folder", parents: ["root"] },
+    fields: "id"
+  });
+  return creada.data.id;
+}
 
 module.exports = async (req, res) => {
   const secret = process.env.CRON_SECRET;
@@ -76,7 +86,7 @@ module.exports = async (req, res) => {
 
     const quien = await drive.about.get({ fields: "user(emailAddress,displayName)" });
 
-    const carpetaRaizId = await obtenerOCrearCarpeta(drive, "Notificaciones EMB", "root");
+    const carpetaRaizId = await obtenerOCrearCarpetaRaiz(drive, "Notificaciones EMB");
     const carpetaAnioId = await obtenerOCrearCarpeta(drive, String(anio), carpetaRaizId);
 
     const archivoCreado = await drive.files.create({
