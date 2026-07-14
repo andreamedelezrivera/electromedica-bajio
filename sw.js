@@ -1,4 +1,4 @@
-const CACHE_NAME="emb-cache-v2";
+const CACHE_NAME="emb-cache-v3";
 const ASSETS=[
   "./",
   "./index.html",
@@ -29,10 +29,30 @@ function esActivoEstatico(url){
   return url.origin===self.location.origin||ASSETS.some(a=>a.startsWith("http")&&a===url.href);
 }
 
+function esHTML(request,url){
+  return request.mode==="navigate"||url.pathname.endsWith("/")||url.pathname.endsWith("index.html");
+}
+
 self.addEventListener("fetch",e=>{
   if(e.request.method!=="GET")return;
   const url=new URL(e.request.url);
   if(!esActivoEstatico(url))return; // deja pasar llamadas a Supabase/API sin cache-first: siempre red, para no mostrar datos viejos
+
+  if(esHTML(e.request,url)){
+    // network-first para el HTML: siempre trae la versión más nueva si hay internet,
+    // y solo cae al cache (para modo offline) si la red falla
+    e.respondWith(
+      fetch(e.request).then(networkResp=>{
+        if(networkResp&&networkResp.status===200){
+          const clone=networkResp.clone();
+          caches.open(CACHE_NAME).then(cache=>cache.put(e.request,clone));
+        }
+        return networkResp;
+      }).catch(()=>caches.match(e.request))
+    );
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request).then(cached=>{
       const fetchPromise=fetch(e.request).then(networkResp=>{
