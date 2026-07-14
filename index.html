@@ -154,9 +154,22 @@ function obtenerTokenGoogle(){
     client.requestAccessToken();
   });
 }
-async function subirCSVaDrive(accessToken,nombreArchivo,contenidoCSV){
+async function obtenerOCrearCarpetaDrive(accessToken,nombre,parentId){
+  const filtroParent=parentId?` and '${parentId}' in parents`:" and 'root' in parents";
+  const q=encodeURIComponent(`name='${nombre.replace(/'/g,"\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false${filtroParent}`);
+  const buscar=await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`,{headers:{Authorization:`Bearer ${accessToken}`}});
+  if(!buscar.ok){const t=await buscar.text();throw new Error("Google Drive respondió con error: "+t);}
+  const encontradas=await buscar.json();
+  if(encontradas.files&&encontradas.files.length>0)return encontradas.files[0].id;
+  const metadata={name:nombre,mimeType:"application/vnd.google-apps.folder",parents:parentId?[parentId]:undefined};
+  const crear=await fetch("https://www.googleapis.com/drive/v3/files",{method:"POST",headers:{Authorization:`Bearer ${accessToken}`,"Content-Type":"application/json"},body:JSON.stringify(metadata)});
+  if(!crear.ok){const t=await crear.text();throw new Error("Google Drive respondió con error: "+t);}
+  const creada=await crear.json();
+  return creada.id;
+}
+async function subirCSVaDrive(accessToken,nombreArchivo,contenidoCSV,parentId){
   const boundary="emb_boundary_"+Date.now();
-  const metadata={name:nombreArchivo,mimeType:"text/csv"};
+  const metadata={name:nombreArchivo,mimeType:"text/csv",parents:parentId?[parentId]:undefined};
   const body=
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`+
     `--${boundary}\r\nContent-Type: text/csv\r\n\r\n${contenidoCSV}\r\n--${boundary}--`;
@@ -1980,7 +1993,9 @@ function RespaldoDrive(){
       const csv=generarCSVNotificaciones(data);
       const token=await obtenerTokenGoogle();
       const nombreArchivo=`notificaciones_${NOMBRES_MES[mesSel]}_${anioSel}.csv`;
-      await subirCSVaDrive(token,nombreArchivo,csv);
+      const carpetaRaiz=await obtenerOCrearCarpetaDrive(token,"Notificaciones EMB");
+      const carpetaAnio=await obtenerOCrearCarpetaDrive(token,String(anioSel),carpetaRaiz);
+      await subirCSVaDrive(token,nombreArchivo,csv,carpetaAnio);
       const ids=data.map(n=>n.id);
       await sb.from("notificaciones").delete().in("id",ids);
       setResultado({archivo:nombreArchivo,cantidad:data.length});
@@ -1992,7 +2007,7 @@ function RespaldoDrive(){
   return (
     <Card>
       <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>📦 Respaldo de notificaciones a Google Drive</div>
-      <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Exporta las notificaciones del mes elegido a un CSV en tu Google Drive, y las elimina de la base de datos para no retener info en la nube. Te pedirá iniciar sesión con Google la primera vez de cada sesión de navegador.</div>
+      <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Exporta las notificaciones del mes elegido a un CSV en tu Google Drive (carpeta "Notificaciones EMB" → carpeta del año), y las elimina de la base de datos para no retener info en la nube. Te pedirá iniciar sesión con Google la primera vez de cada sesión de navegador.</div>
       <div style={{display:"flex",gap:8,marginBottom:12}}>
         <select value={mesSel} onChange={e=>setMesSel(parseInt(e.target.value))} style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:14,background:"#fff"}}>
           {NOMBRES_MES.map((m,i)=><option key={m} value={i} style={{textTransform:"capitalize"}}>{m}</option>)}
