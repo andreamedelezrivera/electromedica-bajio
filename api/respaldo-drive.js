@@ -55,6 +55,34 @@ module.exports = async (req, res) => {
     return;
   }
 
+  const auth0 = new google.auth.OAuth2(clientId, clientSecret);
+  auth0.setCredentials({ refresh_token: refreshToken });
+  const drive0 = google.drive({ version: "v3", auth: auth0 });
+
+  if (req.query && req.query.listar) {
+    try {
+      const listado = await drive0.files.list({
+        q: `'${req.query.listar}' in parents and trashed=false`,
+        fields: "files(id,name,mimeType,createdTime,size)",
+        pageSize: 200
+      });
+      res.status(200).json({ ok: true, archivos: listado.data.files });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+    return;
+  }
+
+  if (req.query && req.query.borrarArchivo) {
+    try {
+      await drive0.files.delete({ fileId: req.query.borrarArchivo });
+      res.status(200).json({ ok: true, borrado: req.query.borrarArchivo });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+    return;
+  }
+
   try {
     const q = req.query || {};
     const modoPrueba = q.prueba === "true";
