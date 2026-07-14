@@ -311,11 +311,24 @@ function linkCorreo(email,asunto,mensaje){
   return `mailto:${email||""}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje)}`;
 }
 const WHATSAPP_BUSINESS_API_LISTA=false;
-function notificarCliente({telefono,email,mensaje,asunto}){
+async function enviarCorreoAutomatico(email,asunto,mensaje){
+  try{
+    const resp=await fetch("/api/enviar-correo",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:email,subject:asunto,texto:mensaje})});
+    return resp.ok;
+  }catch(e){
+    return false;
+  }
+}
+async function notificarCliente({telefono,email,mensaje,asunto}){
   if(WHATSAPP_BUSINESS_API_LISTA&&telefono){
     return;
   }
-  const link=telefono?linkWhatsApp(telefono,mensaje):linkCorreo(email,asunto||"Electromédica del Bajío",mensaje);
+  const asuntoFinal=asunto||"Electromédica del Bajío";
+  if(!telefono&&email){
+    const enviado=await enviarCorreoAutomatico(email,asuntoFinal,mensaje);
+    if(enviado)return;
+  }
+  const link=telefono?linkWhatsApp(telefono,mensaje):linkCorreo(email,asuntoFinal,mensaje);
   window.open(link,"_blank");
 }
 async function revisarEscalacionMantenimiento(usuario,mostrarPopup){
@@ -1412,6 +1425,7 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
   const [eliminando,setEliminando]=useState(false);
   const [solicitado,setSolicitado]=useState(false);
   const [generandoPDF,setGenerandoPDF]=useState(false);
+  const [enviandoCorreo,setEnviandoCorreo]=useState(false);
   const esAdmin=usuario.rol==="admin";
   const esBorrador=orden.estado==="borrador";
   const esEnProceso=orden.estado==="en_proceso";
@@ -1423,6 +1437,17 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
     try{await generarPDFOrden(orden);}
     catch(e){alert("Error al generar el PDF: "+e.message);}
     setGenerandoPDF(false);
+  }
+  async function enviarCorreoOrden(){
+    const email=orden.envio_email;
+    if(!email){alert("Esta orden no tiene un correo registrado.");return;}
+    setEnviandoCorreo(true);
+    const msg=`Hola ${orden.cliente_nombre},\n\nLe compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío.\nEstado: ${orden.estado==="completada"?"Completada":orden.estado}.\n\nSaludos.`;
+    const asunto=`Orden #${orden.folio} — Electromédica del Bajío`;
+    const enviado=await enviarCorreoAutomatico(email,asunto,msg);
+    if(enviado)alert("Correo enviado a "+email);
+    else window.open(linkCorreo(email,asunto,msg),"_blank");
+    setEnviandoCorreo(false);
   }
   async function eliminar(){
     setEliminando(true);
@@ -1562,12 +1587,7 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
           const msg=`Hola ${orden.cliente_nombre}, le compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío. Estado: ${orden.estado==="completada"?"Completada":orden.estado}.`;
           window.open(linkWhatsApp(tel,msg),"_blank");
         }} color={C.exito} sm/>
-        <Btn ch="✉️ Correo" onClick={()=>{
-          const email=orden.envio_email;
-          if(!email){alert("Esta orden no tiene un correo registrado.");return;}
-          const msg=`Hola ${orden.cliente_nombre},\n\nLe compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío.\nEstado: ${orden.estado==="completada"?"Completada":orden.estado}.\n\nSaludos.`;
-          window.open(linkCorreo(email,`Orden #${orden.folio} — Electromédica del Bajío`,msg),"_blank");
-        }} color={C.marino} sm/>
+        <Btn ch={enviandoCorreo?"Enviando...":"✉️ Correo"} onClick={enviarCorreoOrden} color={C.marino} sm dis={enviandoCorreo}/>
       </div>
     </div>
   );
