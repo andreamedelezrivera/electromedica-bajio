@@ -181,7 +181,7 @@ async function subirCSVaDrive(accessToken,nombreArchivo,contenidoCSV,parentId){
   if(!resp.ok){const t=await resp.text();throw new Error("Google Drive respondió con error: "+t);}
   return resp.json();
 }
-async function generarPDFOrden(orden){
+async function construirPDFOrden(orden){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:"pt",format:"letter"});
   const M=40;let y=60;
@@ -266,6 +266,10 @@ async function generarPDFOrden(orden){
 
   const nombreArchivo=`Orden_${orden.folio}_${(orden.cliente_nombre||"cliente").replace(/[^a-zA-Z0-9]+/g,"_")}.pdf`;
   const blob=doc.output("blob");
+  return {blob,nombreArchivo};
+}
+async function generarPDFOrden(orden){
+  const {blob,nombreArchivo}=await construirPDFOrden(orden);
   if(window.showSaveFilePicker){
     try{
       const handle=await window.showSaveFilePicker({suggestedName:nombreArchivo,types:[{description:"PDF",accept:{"application/pdf":[".pdf"]}}]});
@@ -281,6 +285,24 @@ async function generarPDFOrden(orden){
   const a=document.createElement("a");
   a.href=url;a.download=nombreArchivo;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+function blobABase64(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onloadend=()=>resolve(reader.result.split(",")[1]);
+    reader.onerror=reject;
+    reader.readAsDataURL(blob);
+  });
+}
+async function enviarResumenOrdenPorCorreo(orden){
+  const email=orden.envio_email;
+  if(!email)return {ok:false,motivo:"sin_correo"};
+  const {blob,nombreArchivo}=await construirPDFOrden(orden);
+  const adjuntoBase64=await blobABase64(blob);
+  const msg=`Hola ${orden.cliente_nombre},\n\nLe compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío.\nEstado: ${orden.estado==="completada"?"Completada":orden.estado}.\n\nSaludos.`;
+  const asunto=`Orden #${orden.folio} — Electromédica del Bajío`;
+  const enviado=await enviarCorreoAutomatico(email,asunto,msg,{nombre:nombreArchivo,base64:adjuntoBase64});
+  return {ok:enviado};
 }
 function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"});}
 async function verificarClienteDirectorio(o){
@@ -324,9 +346,11 @@ function linkCorreo(email,asunto,mensaje){
   return `mailto:${email||""}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje)}`;
 }
 const WHATSAPP_BUSINESS_API_LISTA=false;
-async function enviarCorreoAutomatico(email,asunto,mensaje){
+async function enviarCorreoAutomatico(email,asunto,mensaje,adjunto){
   try{
-    const resp=await fetch("/api/enviar-correo",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:email,subject:asunto,texto:mensaje})});
+    const body={to:email,subject:asunto,texto:mensaje};
+    if(adjunto)body.adjunto=adjunto;
+    const resp=await fetch("/api/enviar-correo",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     return resp.ok;
   }catch(e){
     return false;
@@ -986,6 +1010,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     }
     guardadoOkRef.current=true;
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden General #${folio} — ${o.cliente_nombre||"sin cliente"}`});
+    if(estado==="completada"){try{await enviarResumenOrdenPorCorreo(datos);}catch(e){}}
     setSaving(false);
     const chequeo=await verificarClienteDirectorio(o);
     if(chequeo.tipo==="nuevo"){await crearClienteDirectorio(o);setSucia&&setSucia(false);onDone();}
@@ -1164,6 +1189,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     }
     guardadoOkRef.current=true;
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden #${folio} — ${o.cliente_nombre||"sin cliente"} | ${o.equipo_tipo}`});
+    if(estado==="completada"){try{await enviarResumenOrdenPorCorreo(datos);}catch(e){}}
     setSaving(false);
     const chequeo=await verificarClienteDirectorio(o);
     if(chequeo.tipo==="nuevo"){await crearClienteDirectorio(o);setSucia&&setSucia(false);onDone();}
@@ -1455,11 +1481,12 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
     const email=orden.envio_email;
     if(!email){alert("Esta orden no tiene un correo registrado.");return;}
     setEnviandoCorreo(true);
-    const msg=`Hola ${orden.cliente_nombre},\n\nLe compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío.\nEstado: ${orden.estado==="completada"?"Completada":orden.estado}.\n\nSaludos.`;
-    const asunto=`Orden #${orden.folio} — Electromédica del Bajío`;
-    const enviado=await enviarCorreoAutomatico(email,asunto,msg);
-    if(enviado)alert("Correo enviado a "+email);
-    else window.open(linkCorreo(email,asunto,msg),"_blank");
+    const {ok}=await enviarResumenOrdenPorCorreo(orden);
+    if(ok)alert("Correo enviado a "+email+" con el PDF adjunto.");
+    else{
+      const msg=`Hola ${orden.cliente_nombre},\n\nLe compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío.\nEstado: ${orden.estado==="completada"?"Completada":orden.estado}.\n\nSaludos.`;
+      window.open(linkCorreo(email,`Orden #${orden.folio} — Electromédica del Bajío`,msg),"_blank");
+    }
     setEnviandoCorreo(false);
   }
   async function eliminar(){

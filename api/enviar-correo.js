@@ -6,7 +6,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const { to, subject, texto } = req.body || {};
+  const { to, subject, texto, adjunto } = req.body || {};
   if (!to || !subject || !texto) {
     res.status(400).json({ error: "Faltan datos (to, subject, texto)" });
     return;
@@ -24,12 +24,16 @@ module.exports = async (req, res) => {
       service: "gmail",
       auth: { user, pass }
     });
-    await transporter.sendMail({
+    const mailOptions = {
       from: `"Electromédica del Bajío" <${user}>`,
       to,
       subject,
       text: texto
-    });
+    };
+    if (adjunto && adjunto.base64 && adjunto.nombre) {
+      mailOptions.attachments = [{ filename: adjunto.nombre, content: adjunto.base64, encoding: "base64" }];
+    }
+    await transporter.sendMail(mailOptions);
     res.status(200).json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
