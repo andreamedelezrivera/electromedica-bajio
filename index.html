@@ -336,8 +336,13 @@ async function revisarEscalacionMantenimiento(usuario,mostrarPopup){
     if(usuario.id===o.creado_por){mostrarPopup({orden:o,etapa});return;}
   }
 }
+async function limpiarNotifsMantenimiento(cliente_nombre,equipo_tipo){
+  const prefijo=`🔧 Próximo mantenimiento de ${cliente_nombre} (${equipo_tipo})`;
+  await sb.from("notificaciones").update({leida:true,leida_historial:true}).eq("leida",false).ilike("mensaje",prefijo+"%");
+}
 async function marcarMantNoRealiza(orden){
   await sb.from("ordenes").update({mant_estado:"no_realiza"}).eq("id",orden.id);
+  await limpiarNotifsMantenimiento(orden.cliente_nombre,orden.equipo_tipo);
   await sb.from("notificaciones").insert({mensaje:`🚫 Mantenimiento de ${orden.cliente_nombre} (${orden.equipo_tipo}) programado para ${orden.prev_proximo} — marcado como NO SE REALIZA`,para_rol:"admin"});
   const msg=`Le informamos que el mantenimiento programado para ${orden.prev_proximo} no se realizará. Si lo requiere, contáctenos.`;
   notificarCliente({telefono:orden.envio_wa,email:orden.envio_email,mensaje:msg,asunto:"Mantenimiento no realizado"});
@@ -547,7 +552,7 @@ function Header({titulo,usuario,onLogout,onLogoClick}){
 }
 
 function Nav({vista,setVista,notifs}){
-  const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"directorio",ico:"📁",lbl:"Directorio"},{id:"config",ico:"⚙️",lbl:"Config"}];
+  const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"pendientes",ico:"📝",lbl:"Pendientes"},{id:"directorio",ico:"📁",lbl:"Directorio"},{id:"config",ico:"⚙️",lbl:"Config"}];
   const vistaActiva=vista==="historial_completo"?"config":vista;
   return (
     <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.marino,display:"flex",zIndex:200,borderTop:`2px solid ${C.cielo}`}}>
@@ -677,6 +682,7 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
   const [confirmNoRealiza,setConfirmNoRealiza]=useState(null);
   const [sincronizando,setSincronizando]=useState(false);
   const [notifsSinRespaldar,setNotifsSinRespaldar]=useState(0);
+  const [tareasHoy,setTareasHoy]=useState([]);
   useEffect(()=>{
     if(usuario.rol!=="admin")return;
     (async()=>{
@@ -685,10 +691,18 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
       setNotifsSinRespaldar(count||0);
     })();
   },[usuario.id]);
+  useEffect(()=>{
+    (async()=>{
+      const hoyStr=new Date().toISOString().slice(0,10);
+      const {data}=await sb.from("tareas_pendientes").select("*").eq("usuario_id",usuario.id).eq("completado",false).lte("fecha_recordatorio",hoyStr).order("fecha_recordatorio");
+      if(data)setTareasHoy(data);
+    })();
+  },[usuario.id]);
   async function confirmarNoRealiza(){
     await marcarMantNoRealiza(confirmNoRealiza);
     setConfirmNoRealiza(null);
     recargarOrdenes&&recargarOrdenes();
+    recargarNotifs&&recargarNotifs();
   }
   async function sincronizarAhora(){
     setSincronizando(true);
@@ -781,6 +795,15 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
               </div>
             </div>
           ))}
+        </Card>
+      )}
+      {tareasHoy.length>0&&(
+        <Card style={{background:C.amarillo,border:"1px solid #F0CA00"}}>
+          <div style={{fontWeight:800,color:"#7D6608",marginBottom:10}}>📝 Pendientes con recordatorio</div>
+          {tareasHoy.map(t=>(
+            <div key={t.id} style={{fontSize:13,color:"#7D6608",marginBottom:6}}>{t.texto}</div>
+          ))}
+          <Btn ch="Ver Pendientes" onClick={()=>setVista("pendientes")} color={C.marino} sm/>
         </Card>
       )}
       {notifs.length>0&&(
@@ -1625,7 +1648,10 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
       datos.estado="agendada";datos.orden_id=prefill?.orden_id||null;datos.creado_por=usuario.id;
       const {data:citaCreada}=await sb.from("citas").insert(datos).select().single();
       citaId=citaCreada?.id;
-      if(prefill?.orden_id&&citaId){await sb.from("ordenes").update({mant_cita_id:citaId,mant_estado:"agendado"}).eq("id",prefill.orden_id);}
+      if(prefill?.orden_id&&citaId){
+        const {data:ordenActualizada}=await sb.from("ordenes").update({mant_cita_id:citaId,mant_estado:"agendado"}).eq("id",prefill.orden_id).select("cliente_nombre,equipo_tipo").single();
+        if(ordenActualizada)await limpiarNotifsMantenimiento(ordenActualizada.cliente_nombre,ordenActualizada.equipo_tipo);
+      }
     }
     const msg=`📅 Cita ${citaExistente?"reagendada":"agendada"}: ${c.cliente_nombre} — ${c.fecha} ${c.hora} — ${nombreU(ingId)}`;
     await sb.from("notificaciones").insert([{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:ingId}]);
@@ -1707,7 +1733,7 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
   );
 }
 
-function Agenda({ordenes,usuario,citas,recargarCitas,recargarOrdenes,prefill,limpiarPrefill}){
+function Agenda({ordenes,usuario,citas,recargarCitas,recargarOrdenes,recargarNotifs,prefill,limpiarPrefill}){
   const hoy=new Date();
   const [mes,setMes]=useState(hoy.getMonth());
   const [anio,setAnio]=useState(hoy.getFullYear());
@@ -1724,6 +1750,7 @@ function Agenda({ordenes,usuario,citas,recargarCitas,recargarOrdenes,prefill,lim
     await marcarMantNoRealiza(confirmNoRealiza);
     setConfirmNoRealiza(null);
     recargarOrdenes&&recargarOrdenes();
+    recargarNotifs&&recargarNotifs();
   }
   function agendarDesdeOrden(o){
     setPrefillLocal({cliente_nombre:o.cliente_nombre,cliente_direccion:o.cliente_dir,cliente_telefono:o.cliente_tel,descripcion:`Mantenimiento preventivo — ${o.equipo_tipo}`,fecha:o.prev_proximo,orden_id:o.id});
@@ -1761,7 +1788,7 @@ function Agenda({ordenes,usuario,citas,recargarCitas,recargarOrdenes,prefill,lim
   function prevMes(){if(mes===0){setMes(11);setAnio(a=>a-1);}else setMes(m=>m-1);setDia(null);}
   function nextMes(){if(mes===11){setMes(0);setAnio(a=>a+1);}else setMes(m=>m+1);setDia(null);}
   function cerrarForm(){setMostrarForm(false);setPrefillLocal(null);limpiarPrefill&&limpiarPrefill();}
-  function alGuardar(){cerrarForm();recargarCitas();}
+  function alGuardar(){cerrarForm();recargarCitas();recargarOrdenes&&recargarOrdenes();recargarNotifs&&recargarNotifs();}
   async function cancelarCita(){
     await sb.from("citas").update({estado:"cancelada"}).eq("id",citaSel.id);
     const msg=`❌ Cita cancelada: ${citaSel.cliente_nombre} — ${citaSel.fecha} ${citaSel.hora.slice(0,5)}`;
@@ -2391,6 +2418,102 @@ function Directorio({usuario}){
   );
 }
 
+function Pendientes({usuario}){
+  const [tareas,setTareas]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [texto,setTexto]=useState("");
+  const [fecha,setFecha]=useState("");
+  const [confirmBorrar,setConfirmBorrar]=useState(null);
+  const [editando,setEditando]=useState(null);
+  const [editTexto,setEditTexto]=useState("");
+  const [editFecha,setEditFecha]=useState("");
+  async function cargar(){
+    setLoading(true);
+    const {data}=await sb.from("tareas_pendientes").select("*").eq("usuario_id",usuario.id).order("completado").order("fecha_recordatorio",{ascending:true,nullsFirst:false}).order("id",{ascending:false});
+    if(data)setTareas(data);
+    setLoading(false);
+  }
+  useEffect(()=>{cargar();},[]);
+  async function agregar(){
+    if(!texto.trim())return;
+    await sb.from("tareas_pendientes").insert({usuario_id:usuario.id,texto:texto.trim(),fecha_recordatorio:fecha||null});
+    setTexto("");setFecha("");
+    cargar();
+  }
+  async function toggleCompletado(t){
+    await sb.from("tareas_pendientes").update({completado:!t.completado}).eq("id",t.id);
+    cargar();
+  }
+  function empezarEditar(t){
+    setEditando(t.id);
+    setEditTexto(t.texto);
+    setEditFecha(t.fecha_recordatorio||"");
+  }
+  async function guardarEdicion(){
+    if(!editTexto.trim())return;
+    await sb.from("tareas_pendientes").update({texto:editTexto.trim(),fecha_recordatorio:editFecha||null}).eq("id",editando);
+    setEditando(null);
+    cargar();
+  }
+  async function borrar(id){
+    await sb.from("tareas_pendientes").delete().eq("id",id);
+    setConfirmBorrar(null);
+    cargar();
+  }
+  const hoyStr=new Date().toISOString().slice(0,10);
+  return (
+    <div style={{padding:16,paddingBottom:80}}>
+      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>📝 Pendientes</div>
+      <div style={{fontSize:12,color:"#aaa",marginBottom:14}}>Tu espacio personal — solo tú ves estas tareas.</div>
+      <Card>
+        <TA lbl="Nueva tarea" val={texto} set={setTexto} ph="Escribe algo que necesites hacer o agendar..."/>
+        <Inp lbl="Recordatorio (opcional)" val={fecha} set={setFecha} type="date"/>
+        <Btn ch="➕ Agregar" onClick={agregar} color={C.marino} full/>
+      </Card>
+      {loading&&<div style={{textAlign:"center",color:C.texto,padding:20}}>Cargando...</div>}
+      {!loading&&tareas.length===0&&<div style={{textAlign:"center",color:"#aaa",padding:20}}>Sin pendientes por ahora.</div>}
+      {!loading&&tareas.map(t=>{
+        const vencida=t.fecha_recordatorio&&t.fecha_recordatorio<=hoyStr&&!t.completado;
+        if(editando===t.id){
+          return (
+            <Card key={t.id}>
+              <TA lbl="Editar tarea" val={editTexto} set={setEditTexto} ph="Escribe algo que necesites hacer o agendar..."/>
+              <Inp lbl="Recordatorio (opcional)" val={editFecha} set={setEditFecha} type="date"/>
+              <div style={{display:"flex",gap:8}}>
+                <Btn ch="💾 Guardar" onClick={guardarEdicion} color={C.exito} sm/>
+                <Btn ch="Cancelar" onClick={()=>setEditando(null)} color={C.texto} out sm/>
+              </div>
+            </Card>
+          );
+        }
+        return (
+          <Card key={t.id} style={{opacity:t.completado?0.5:1,background:vencida?C.amarillo:C.blanco}}>
+            <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+              <input type="checkbox" checked={t.completado} onChange={()=>toggleCompletado(t)} style={{marginTop:3,width:18,height:18,accentColor:C.exito}}/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,color:C.texto,textDecoration:t.completado?"line-through":"none"}}>{t.texto}</div>
+                {t.fecha_recordatorio&&<div style={{fontSize:12,color:vencida?"#7D6608":"#aaa",fontWeight:vencida?700:400,marginTop:4}}>{vencida?"⏰ ":"📅 "}{t.fecha_recordatorio}</div>}
+              </div>
+              <button onClick={()=>empezarEditar(t)} style={{background:"transparent",border:"none",color:C.marino,cursor:"pointer",fontSize:16}}>✏️</button>
+              <button onClick={()=>setConfirmBorrar(t)} style={{background:"transparent",border:"none",color:C.error,cursor:"pointer",fontSize:16}}>🗑️</button>
+            </div>
+          </Card>
+        );
+      })}
+      {confirmBorrar&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Eliminar este pendiente?</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>{confirmBorrar.texto}</div>
+            <Btn ch="Sí, eliminar" onClick={()=>borrar(confirmBorrar.id)} color={C.error} full/>
+            <Btn ch="Cancelar" onClick={()=>setConfirmBorrar(null)} color={C.texto} out full/>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App(){
   const [usuario,setUsuario]=useState(()=>{try{const u=sessionStorage.getItem("emb_u");return u?JSON.parse(u):null;}catch(e){return null;}});
   const [vista,setVista]=useState("dashboard");
@@ -2433,6 +2556,7 @@ function App(){
       await sb.from("ordenes").update({mant_estado:"pendiente"}).eq("id",orden.id);
     }else if(accion==="no_realiza"){
       await marcarMantNoRealiza(orden);
+      cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);
     }
     setMantPopup(null);
   }
@@ -2491,7 +2615,7 @@ function App(){
   function refrescar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);setSelec(null);setVista("ordenes");}
   function soloRecargar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}
   if(!usuario) return <Login onLogin={login}/>;
-  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",directorio:"Directorio",config:"Configuración",historial_completo:"Historial"};
+  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",pendientes:"Pendientes",directorio:"Directorio",config:"Configuración",historial_completo:"Historial"};
   return (
     <div style={{minHeight:"100vh",background:C.gris}}>
       <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={pedirLogout} onLogoClick={()=>intentarNavegar(()=>{setOe(null);setSelec(null);setVista("dashboard");})}/>
@@ -2500,7 +2624,8 @@ function App(){
         {vista==="nueva_orden"&&<NuevaOrden usuario={usuario} onDone={refrescar} oe={oe} setSucia={setSucia} guardarBorradorRef={guardarBorradorRef} intentarSalir={intentarNavegar}/>}
         {vista==="ordenes"&&!selec&&<ListaOrdenes ordenes={ordenes} onSel={o=>setSelec(o)} loading={loading} onNueva={()=>{setOe(null);setVista("nueva_orden");}}/>}
         {vista==="ordenes"&&selec&&<DetalleOrden orden={selec} usuario={usuario} onVolver={()=>setSelec(null)} onRefrescar={soloRecargar} onEditar={o=>{setOe(o);setSelec(null);setVista("nueva_orden");}}/>}
-        {vista==="agenda"&&<Agenda ordenes={ordenes} usuario={usuario} citas={citas} recargarCitas={cargarCitas} recargarOrdenes={cargarOrdenes} prefill={citaPrefill} limpiarPrefill={()=>setCitaPrefill(null)}/>}
+        {vista==="agenda"&&<Agenda ordenes={ordenes} usuario={usuario} citas={citas} recargarCitas={cargarCitas} recargarOrdenes={cargarOrdenes} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}} prefill={citaPrefill} limpiarPrefill={()=>setCitaPrefill(null)}/>}
+        {vista==="pendientes"&&<Pendientes usuario={usuario}/>}
         {vista==="directorio"&&<Directorio usuario={usuario}/>}
         {vista==="config"&&<Config usuario={usuario} onLogout={pedirLogout} historial={historial} onVerHistorial={()=>setVista("historial_completo")}/>}
         {vista==="historial_completo"&&<HistorialCompleto usuario={usuario} onVolver={()=>setVista("config")}/>}
