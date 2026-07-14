@@ -302,12 +302,21 @@ function citasSeTraslapan(c1,c2){
   const fin2=ini2+(c2.duracion_horas*3600000)+(c2.traslado_minutos*60000);
   return ini1<fin2&&ini2<fin1;
 }
+const HORAS_DIA=Array.from({length:21},(_,i)=>{const m=8*60+i*30;return `${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;});
 function linkWhatsApp(telefono,mensaje){
   const num=(telefono||"").replace(/\D/g,"");
   return `https://wa.me/52${num}?text=${encodeURIComponent(mensaje)}`;
 }
 function linkCorreo(email,asunto,mensaje){
   return `mailto:${email||""}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje)}`;
+}
+const WHATSAPP_BUSINESS_API_LISTA=false;
+function notificarCliente({telefono,email,mensaje,asunto}){
+  if(WHATSAPP_BUSINESS_API_LISTA&&telefono){
+    return;
+  }
+  const link=telefono?linkWhatsApp(telefono,mensaje):linkCorreo(email,asunto||"Electromédica del Bajío",mensaje);
+  window.open(link,"_blank");
 }
 async function revisarEscalacionMantenimiento(usuario,mostrarPopup){
   const {data}=await sb.from("ordenes").select("*").eq("estado","completada").not("prev_proximo","is",null).is("mant_cita_id",null).or("mant_estado.is.null,mant_estado.neq.no_realiza");
@@ -326,6 +335,12 @@ async function revisarEscalacionMantenimiento(usuario,mostrarPopup){
     await sb.from("notificaciones").insert([{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:o.creado_por}]);
     if(usuario.id===o.creado_por){mostrarPopup({orden:o,etapa});return;}
   }
+}
+async function marcarMantNoRealiza(orden){
+  await sb.from("ordenes").update({mant_estado:"no_realiza"}).eq("id",orden.id);
+  await sb.from("notificaciones").insert({mensaje:`🚫 Mantenimiento de ${orden.cliente_nombre} (${orden.equipo_tipo}) programado para ${orden.prev_proximo} — marcado como NO SE REALIZA`,para_rol:"admin"});
+  const msg=`Le informamos que el mantenimiento programado para ${orden.prev_proximo} no se realizará. Si lo requiere, contáctenos.`;
+  notificarCliente({telefono:orden.envio_wa,email:orden.envio_email,mensaje:msg,asunto:"Mantenimiento no realizado"});
 }
 function obtenerUbicacion(){
   return new Promise(resolve=>{
@@ -552,6 +567,7 @@ function Nav({vista,setVista,notifs}){
 function NotifPanel({notifs,usuario,recargarNotifs}){
   const [confirm,setConfirm]=useState(null); // {id, folio, accion}
   const [filtro,setFiltro]=useState("todas");
+  const [mostrarTodas,setMostrarTodas]=useState(false);
 
   async function ejecutar(){
     const {id,folio,accion,solicitante,uidSol}=confirm;
@@ -587,6 +603,7 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
   }
 
   const notifsFiltrados=usuario.rol==="admin"&&filtro!=="todas"?notifs.filter(n=>tipoNotif(n.mensaje)===filtro):notifs;
+  const notifsMostrados=mostrarTodas?notifsFiltrados:notifsFiltrados.slice(0,15);
 
   return (
     <div style={{background:C.amarillo,borderRadius:12,padding:16,marginBottom:16,border:`1px solid #F0CA00`}}>
@@ -620,7 +637,7 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
       )}
 
       {notifsFiltrados.length===0&&<div style={{fontSize:13,color:"#8a7500"}}>Sin notificaciones en esta categoría.</div>}
-      {notifsFiltrados.map((n,i)=>{
+      {notifsMostrados.map((n,i)=>{
         const partes=n.mensaje.split("|");
         const esSolicitud=partes[0]==="🔔 SOLICITUD" && partes.length>=5;
         const folio=esSolicitud?partes[1]:"";
@@ -646,13 +663,33 @@ function NotifPanel({notifs,usuario,recargarNotifs}){
           </div>
         );
       })}
+      {!mostrarTodas&&notifsFiltrados.length>15&&(
+        <div style={{textAlign:"center",marginTop:6}}>
+          <span onClick={()=>setMostrarTodas(true)} style={{fontSize:13,cursor:"pointer",color:"#7D6608",fontWeight:700}}>Ver más → ({notifsFiltrados.length-15} más)</span>
+        </div>
+      )}
     </div>
   );
 }
 
-function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recargarCitas,onAgendarOrden,pendientesOffline,onSincronizar}){
+function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recargarCitas,recargarOrdenes,onAgendarOrden,pendientesOffline,onSincronizar}){
   const [confirmCompletar,setConfirmCompletar]=useState(null);
+  const [confirmNoRealiza,setConfirmNoRealiza]=useState(null);
   const [sincronizando,setSincronizando]=useState(false);
+  const [notifsSinRespaldar,setNotifsSinRespaldar]=useState(0);
+  useEffect(()=>{
+    if(usuario.rol!=="admin")return;
+    (async()=>{
+      const inicioMes=new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString();
+      const {count}=await sb.from("notificaciones").select("id",{count:"exact",head:true}).lt("fecha",inicioMes);
+      setNotifsSinRespaldar(count||0);
+    })();
+  },[usuario.id]);
+  async function confirmarNoRealiza(){
+    await marcarMantNoRealiza(confirmNoRealiza);
+    setConfirmNoRealiza(null);
+    recargarOrdenes&&recargarOrdenes();
+  }
   async function sincronizarAhora(){
     setSincronizando(true);
     await onSincronizar&&onSincronizar();
@@ -665,7 +702,9 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
     {l:"Completadas",v:ordenes.filter(o=>o.estado==="completada").length,col:C.exito}
   ];
   const hoyStr=new Date().toISOString().slice(0,10);
+  const mananaStr=new Date(Date.now()+86400000).toISOString().slice(0,10);
   const citasHoy=(citas||[]).filter(c=>c.fecha===hoyStr&&c.estado!=="cancelada"&&(usuario.rol==="admin"||c.ingeniero_id===usuario.id||c.colaborador_id===usuario.id)).sort((a,b)=>a.hora.localeCompare(b.hora));
+  const citasManana=(citas||[]).filter(c=>c.fecha===mananaStr&&c.estado!=="cancelada"&&(usuario.rol==="admin"||c.ingeniero_id===usuario.id||c.colaborador_id===usuario.id)).sort((a,b)=>a.hora.localeCompare(b.hora));
   const pendientesUrgentes=ordenes.filter(o=>{
     if(!o.prev_realiza||!o.prev_proximo||o.mant_cita_id||o.mant_estado==="no_realiza")return false;
     const d=diasHasta(o.prev_proximo);
@@ -678,13 +717,19 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
     recargarCitas&&recargarCitas();
   }
   return (
-    <div style={{padding:16}}>
+    <div style={{padding:16,paddingBottom:80}}>
       <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:4}}>Bienvenida, {usuario.nombre.split(" ")[0]} 👋</div>
       <div style={{color:C.texto,fontSize:13,marginBottom:20}}>{ahora()}</div>
       {pendientesOffline>0&&(
         <div style={{background:"#FFF3B0",border:"1px solid #F0CA00",borderRadius:10,padding:12,marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <div style={{fontSize:13,color:"#7D6608",fontWeight:700}}>📴 {pendientesOffline} orden{pendientesOffline!==1?"es":""} guardada{pendientesOffline!==1?"s":""} sin conexión, pendiente{pendientesOffline!==1?"s":""} de subir</div>
           <Btn ch={sincronizando?"Subiendo...":"🔄 Reintentar ahora"} onClick={sincronizarAhora} color={"#7D6608"} sm dis={sincronizando}/>
+        </div>
+      )}
+      {usuario.rol==="admin"&&notifsSinRespaldar>0&&(
+        <div style={{background:"#E8F0FE",border:`1px solid ${C.cielo}`,borderRadius:10,padding:12,marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <div style={{fontSize:13,color:C.marino,fontWeight:700}}>📦 {notifsSinRespaldar} notificaciones de meses anteriores sin respaldar</div>
+          <Btn ch="Ir a respaldo" onClick={()=>setVista("config")} color={C.marino} sm/>
         </div>
       )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
@@ -713,13 +758,27 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
           ))}
         </Card>
       )}
+      {citasManana.length>0&&(
+        <Card>
+          <div style={{fontWeight:800,color:C.marino,marginBottom:10}}>📆 Agenda de mañana</div>
+          {citasManana.map(c=>(
+            <div key={c.id} style={{marginBottom:10}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.texto}}>{c.hora.slice(0,5)} — {c.cliente_nombre}</div>
+              <div style={{fontSize:12,color:"#aaa"}}>{c.descripcion}</div>
+            </div>
+          ))}
+        </Card>
+      )}
       {pendientesUrgentes.length>0&&(
         <Card style={{background:C.amarillo,border:"1px solid #F0CA00"}}>
           <div style={{fontWeight:800,color:"#7D6608",marginBottom:10}}>⏰ Pendientes de agendar (urgentes)</div>
           {pendientesUrgentes.map(o=>(
-            <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
               <div style={{fontSize:13,color:"#7D6608"}}>{o.cliente_nombre} — {o.prev_proximo}</div>
-              <Btn ch="📅 Agendar" onClick={()=>onAgendarOrden&&onAgendarOrden(o)} color={C.marino} sm/>
+              <div>
+                <Btn ch="📅 Agendar" onClick={()=>onAgendarOrden&&onAgendarOrden(o)} color={C.marino} sm/>
+                <Btn ch="🚫 No se realiza" onClick={()=>setConfirmNoRealiza(o)} color={C.error} out sm/>
+              </div>
             </div>
           ))}
         </Card>
@@ -734,6 +793,16 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>{confirmCompletar.cliente_nombre} — {confirmCompletar.hora.slice(0,5)}</div>
             <Btn ch="Sí, completada" onClick={()=>marcarCompletada(confirmCompletar)} color={C.exito} full/>
             <Btn ch="Cancelar" onClick={()=>setConfirmCompletar(null)} color={C.texto} out full/>
+          </div>
+        </div>
+      )}
+      {confirmNoRealiza&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Confirmar que no se realizará?</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Se le avisará a {confirmNoRealiza.cliente_nombre} que el mantenimiento no se realizará.</div>
+            <Btn ch="Sí, confirmar" onClick={confirmarNoRealiza} color={C.error} full/>
+            <Btn ch="Volver" onClick={()=>setConfirmNoRealiza(null)} color={C.texto} out full/>
           </div>
         </div>
       )}
@@ -1099,7 +1168,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
               <div style={{color:C.marino,fontWeight:800,fontSize:16,marginBottom:12}}>📋 Levantamiento de Equipo</div>
               <div style={{background:C.gris,borderRadius:8,padding:12,marginBottom:14,fontSize:13,color:C.texto}}>📅 {ahora()} | 👤 {usuario.nombre}</div>
               <TA lbl="Observaciones y fallas detectadas" val={o.lev_obs} set={v=>upd("lev_obs",v)} ph="Estado general del equipo, fallas visibles..."/>
-              <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>📸 Fotos del equipo</div>
+              <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>📸 Fotos del equipo <span style={{color:C.error}}>* (mínimo 3)</span></div>
               <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
                 📷 Tomar / subir foto
                 <input type="file" accept="image/*" capture="environment" multiple onChange={manejarFotos} style={{display:"none"}}/>
@@ -1183,6 +1252,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
                     if(!o.cliente_nombre||!o.equipo_tipo){setErrEnvio("Faltan datos del cliente o equipo. Regresa al paso 1.");return;}
                     if(o.prev_realiza===null){setErrEnvio("Define si se realizó mantenimiento preventivo.");return;}
                     if(o.corr_realiza===null){setErrEnvio("Define si se realizó mantenimiento correctivo.");return;}
+                    if((o.fotos||[]).length<3){setErrEnvio("Agrega al menos 3 fotos del servicio (paso 2).");return;}
                     if(!o.envio_wa&&!o.envio_email){setErrEnvio("Ingresa WhatsApp o correo del cliente.");return;}
                     setErrEnvio("");guardar("completada");
                   }} color={C.exito} dis={saving}/>
@@ -1324,6 +1394,7 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
   const esEnProceso=orden.estado==="en_proceso";
   const esDueñoBorrador=esBorrador&&orden.creado_por===usuario.id;
   const esColaborador=comoArray(orden.colaboradores).includes(usuario.id);
+  const esGen=orden.equipo_tipo?.startsWith("GENERAL:");
   async function descargarPDF(){
     setGenerandoPDF(true);
     try{await generarPDFOrden(orden);}
@@ -1415,6 +1486,7 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
           </div>
         )}
       </Card>
+      {!esGen&&(
       <Card>
         <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>🔧 Preventivo</div>
         {orden.prev_realiza===false&&<div style={{color:C.error,fontWeight:700}}>✗ No se realizó</div>}
@@ -1436,6 +1508,8 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
         )}
         {orden.prev_realiza===null&&<div style={{color:"#aaa"}}>Pendiente</div>}
       </Card>
+      )}
+      {!esGen&&(
       <Card>
         <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>🛠️ Correctivo</div>
         {orden.corr_realiza===false&&<div style={{color:C.error,fontWeight:700}}>✗ No se realizó</div>}
@@ -1448,6 +1522,7 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
         )}
         {orden.corr_realiza===null&&<div style={{color:"#aaa"}}>Pendiente</div>}
       </Card>
+      )}
       {(orden.firma_imagen||orden.firma_nombre)&&(
         <Card>
           <div style={{fontWeight:700,color:C.marino,marginBottom:8}}>✍️ Firma</div>
@@ -1457,8 +1532,18 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
       )}
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         <Btn ch={generandoPDF?"Generando...":"📄 PDF"} onClick={descargarPDF} color={C.cielo} sm dis={generandoPDF}/>
-        <Btn ch="📱 WhatsApp" onClick={()=>alert("Próximamente")} color={C.exito} sm/>
-        <Btn ch="✉️ Correo" onClick={()=>alert("Próximamente")} color={C.marino} sm/>
+        <Btn ch="📱 WhatsApp" onClick={()=>{
+          const tel=orden.envio_wa||orden.cliente_tel;
+          if(!tel){alert("Esta orden no tiene un WhatsApp registrado.");return;}
+          const msg=`Hola ${orden.cliente_nombre}, le compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío. Estado: ${orden.estado==="completada"?"Completada":orden.estado}.`;
+          window.open(linkWhatsApp(tel,msg),"_blank");
+        }} color={C.exito} sm/>
+        <Btn ch="✉️ Correo" onClick={()=>{
+          const email=orden.envio_email;
+          if(!email){alert("Esta orden no tiene un correo registrado.");return;}
+          const msg=`Hola ${orden.cliente_nombre},\n\nLe compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío.\nEstado: ${orden.estado==="completada"?"Completada":orden.estado}.\n\nSaludos.`;
+          window.open(linkCorreo(email,`Orden #${orden.folio} — Electromédica del Bajío`,msg),"_blank");
+        }} color={C.marino} sm/>
       </div>
     </div>
   );
@@ -1474,14 +1559,13 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
     cliente_telefono:citaExistente?.cliente_telefono||prefill?.cliente_telefono||"",
     descripcion:citaExistente?.descripcion||prefill?.descripcion||"",
     fecha:citaExistente?.fecha||prefill?.fecha||"",
-    hora:citaExistente?.hora?.slice(0,5)||"09:00",
+    hora:citaExistente?.hora?.slice(0,5)||"",
     duracion_horas:citaExistente?.duracion_horas||1,
     traslado_minutos:citaExistente?.traslado_minutos??40,
     ingeniero_id:citaExistente?citaExistente.ingeniero_id:(esAdmin?"":usuario.id),
     colaborador_id:citaExistente?.colaborador_id||""
   });
   const [error,setError]=useState("");
-  const [conflicto,setConflicto]=useState(null);
   const [confirmando,setConfirmando]=useState(false);
   const [guardando,setGuardando]=useState(false);
   useEffect(()=>{(async()=>{const {data}=await sb.from("usuarios").select("id,nombre,rol").order("id");if(data)setUsuariosApp(data);})();},[]);
@@ -1499,6 +1583,13 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
     const ha=clienteHistorial.includes(a.id)?0:1,hb=clienteHistorial.includes(b.id)?0:1;
     return ha-hb;
   });
+  const ingIdActual=esAdmin?(c.ingeniero_id?parseInt(c.ingeniero_id):null):usuario.id;
+  const colabIdActual=c.colaborador_id?parseInt(c.colaborador_id):null;
+  const citasDelDia=(c.fecha&&ingIdActual)?citas.filter(x=>x.fecha===c.fecha&&x.estado!=="cancelada"&&x.id!==citaExistente?.id&&(x.ingeniero_id===ingIdActual||x.colaborador_id===ingIdActual||(colabIdActual&&(x.ingeniero_id===colabIdActual||x.colaborador_id===colabIdActual)))).sort((a,b)=>a.hora.localeCompare(b.hora)):[];
+  const horariosLibres=(c.fecha&&ingIdActual)?HORAS_DIA.filter(h=>{
+    const candidato={fecha:c.fecha,hora:h,duracion_horas:parseFloat(c.duracion_horas)||1,traslado_minutos:parseInt(c.traslado_minutos)||0};
+    return !citasDelDia.some(x=>citasSeTraslapan(candidato,x));
+  }):[];
   function validar(){
     if(!c.cliente_nombre||!c.cliente_direccion||!c.descripcion||!c.fecha||!c.hora||!c.duracion_horas){setError("Completa todos los campos obligatorios.");return false;}
     if(esAdmin&&!c.ingeniero_id){setError("Selecciona un ingeniero.");return false;}
@@ -1514,8 +1605,8 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
   function intentarGuardar(){
     if(!validar())return;
     const choque=buscarConflicto();
-    if(choque){setConflicto(choque);return;}
-    setConflicto(null);setConfirmando(true);
+    if(choque){setError(`⚠️ Ese horario ya no está disponible: se empalma con ${choque.cliente_nombre} el ${choque.fecha} a las ${choque.hora.slice(0,5)}. Elige otro horario.`);return;}
+    setError("");setConfirmando(true);
   }
   async function guardar(){
     setGuardando(true);
@@ -1539,7 +1630,7 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
     await sb.from("notificaciones").insert([{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:ingId}]);
     if(c.cliente_telefono||prefill){
       const msgCliente=`Su cita de servicio con Electromédica del Bajío quedó ${citaExistente?"reagendada":"agendada"} para el ${c.fecha} a las ${c.hora} con Ing. ${nombreU(ingId)}. Motivo: ${c.descripcion}`;
-      window.open(linkWhatsApp(c.cliente_telefono,msgCliente),"_blank");
+      notificarCliente({telefono:c.cliente_telefono,mensaje:msgCliente,asunto:"Cita de servicio"});
     }
     setGuardando(false);setConfirmando(false);
     onGuardado();
@@ -1551,14 +1642,13 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
       <Inp lbl="Ubicación" val={c.cliente_direccion} set={v=>upd("cliente_direccion",v)} req ph="Dirección del servicio"/>
       <Inp lbl="Teléfono del cliente" val={c.cliente_telefono} set={v=>upd("cliente_telefono",v)} ph="10 dígitos" num/>
       <TA lbl="Servicio a realizar" val={c.descripcion} set={v=>upd("descripcion",v)} req ph="Descripción abierta del servicio..."/>
-      <Inp lbl="Fecha" val={c.fecha} set={v=>upd("fecha",v)} req type="date"/>
-      <Inp lbl="Hora" val={c.hora} set={v=>upd("hora",v)} req type="time"/>
-      <Inp lbl="Duración (horas)" val={c.duracion_horas} set={v=>upd("duracion_horas",v)} req type="number"/>
-      <Inp lbl="Tiempo de traslado (min)" val={c.traslado_minutos} set={v=>upd("traslado_minutos",v)} req type="number"/>
+      <Inp lbl="Fecha" val={c.fecha} set={v=>{upd("fecha",v);upd("hora","");}} req type="date"/>
+      <Inp lbl="Duración (horas)" val={c.duracion_horas} set={v=>{upd("duracion_horas",v);upd("hora","");}} req type="number"/>
+      <Inp lbl="Tiempo de traslado (min)" val={c.traslado_minutos} set={v=>{upd("traslado_minutos",v);upd("hora","");}} req type="number"/>
       {esAdmin&&(
         <div style={{marginBottom:14}}>
           <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Ingeniero<span style={{color:C.error}}> *</span></div>
-          <select value={c.ingeniero_id} onChange={e=>upd("ingeniero_id",e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff"}}>
+          <select value={c.ingeniero_id} onChange={e=>{upd("ingeniero_id",e.target.value);upd("hora","");}} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff"}}>
             <option value="">-- Seleccionar --</option>
             {ingenierosOrdenados.map(u=><option key={u.id} value={u.id}>{u.nombre}{clienteHistorial.includes(u.id)?" ⭐ (ya atendió a este cliente)":""}</option>)}
           </select>
@@ -1566,14 +1656,32 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
       )}
       <div style={{marginBottom:14}}>
         <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Compañero (opcional)</div>
-        <select value={c.colaborador_id} onChange={e=>upd("colaborador_id",e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff"}}>
+        <select value={c.colaborador_id} onChange={e=>{upd("colaborador_id",e.target.value);upd("hora","");}} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff"}}>
           <option value="">-- Ninguno --</option>
           {usuariosApp.filter(u=>u.id!==(esAdmin?parseInt(c.ingeniero_id||0):usuario.id)).map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
         </select>
       </div>
-      {conflicto&&(
-        <div style={{background:"#fdecea",border:`1.5px solid ${C.error}`,borderRadius:8,padding:12,marginBottom:12,fontSize:13,color:C.error}}>
-          ⚠️ Se empalma con otra cita: {conflicto.cliente_nombre} el {conflicto.fecha} a las {conflicto.hora.slice(0,5)} (dura {conflicto.duracion_horas}h + {conflicto.traslado_minutos}min de traslado). Elige otro horario.
+      {c.fecha&&!ingIdActual&&<div style={{fontSize:13,color:C.texto,marginBottom:14}}>Selecciona un ingeniero para ver los horarios disponibles.</div>}
+      {c.fecha&&ingIdActual&&citasDelDia.length>0&&(
+        <div style={{background:C.gris,borderRadius:8,padding:12,marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:13,color:C.marino,marginBottom:8}}>🗓️ Otras citas ese día (para calcular traslado)</div>
+          {citasDelDia.map(x=>(
+            <div key={x.id} style={{fontSize:12,color:C.texto,marginBottom:6}}>
+              <strong>{x.hora.slice(0,5)}</strong> — {x.cliente_nombre} ({x.duracion_horas}h) — {x.descripcion}<br/>
+              <span style={{color:"#aaa"}}>📍 {x.cliente_direccion}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {c.fecha&&ingIdActual&&(
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Hora<span style={{color:C.error}}> *</span></div>
+          {horariosLibres.length===0&&<div style={{fontSize:13,color:C.error}}>Sin horarios disponibles ese día para el/los involucrados.</div>}
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {horariosLibres.map(h=>(
+              <span key={h} onClick={()=>upd("hora",h)} style={{padding:"6px 12px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",background:c.hora===h?C.marino:"#eee",color:c.hora===h?"#fff":C.texto}}>{h}</span>
+            ))}
+          </div>
         </div>
       )}
       {error&&<div style={{color:C.error,fontSize:13,marginBottom:10}}>{error}</div>}
@@ -1598,7 +1706,7 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
   );
 }
 
-function Agenda({ordenes,usuario,citas,recargarCitas,prefill,limpiarPrefill}){
+function Agenda({ordenes,usuario,citas,recargarCitas,recargarOrdenes,prefill,limpiarPrefill}){
   const hoy=new Date();
   const [mes,setMes]=useState(hoy.getMonth());
   const [anio,setAnio]=useState(hoy.getFullYear());
@@ -1607,9 +1715,15 @@ function Agenda({ordenes,usuario,citas,recargarCitas,prefill,limpiarPrefill}){
   const [citaSel,setCitaSel]=useState(null);
   const [reagendando,setReagendando]=useState(false);
   const [confirmCancelar,setConfirmCancelar]=useState(false);
+  const [confirmNoRealiza,setConfirmNoRealiza]=useState(null);
   const [prefillLocal,setPrefillLocal]=useState(null);
   const meses=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   useEffect(()=>{if(prefill)setMostrarForm(true);},[prefill]);
+  async function confirmarNoRealiza(){
+    await marcarMantNoRealiza(confirmNoRealiza);
+    setConfirmNoRealiza(null);
+    recargarOrdenes&&recargarOrdenes();
+  }
   function agendarDesdeOrden(o){
     setPrefillLocal({cliente_nombre:o.cliente_nombre,cliente_direccion:o.cliente_dir,cliente_telefono:o.cliente_tel,descripcion:`Mantenimiento preventivo — ${o.equipo_tipo}`,fecha:o.prev_proximo,orden_id:o.id});
     setDia(null);setMostrarForm(true);
@@ -1652,7 +1766,7 @@ function Agenda({ordenes,usuario,citas,recargarCitas,prefill,limpiarPrefill}){
     const msg=`❌ Cita cancelada: ${citaSel.cliente_nombre} — ${citaSel.fecha} ${citaSel.hora.slice(0,5)}`;
     await sb.from("notificaciones").insert([{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:citaSel.ingeniero_id}]);
     if(citaSel.cliente_telefono){
-      window.open(linkWhatsApp(citaSel.cliente_telefono,`Su cita programada para el ${citaSel.fecha} a las ${citaSel.hora.slice(0,5)} ha sido cancelada. Contáctenos para reprogramar.`),"_blank");
+      notificarCliente({telefono:citaSel.cliente_telefono,mensaje:`Su cita programada para el ${citaSel.fecha} a las ${citaSel.hora.slice(0,5)} ha sido cancelada. Contáctenos para reprogramar.`,asunto:"Cita cancelada"});
     }
     setConfirmCancelar(false);setCitaSel(null);recargarCitas();
   }
@@ -1724,7 +1838,10 @@ function Agenda({ordenes,usuario,citas,recargarCitas,prefill,limpiarPrefill}){
                 <div key={o.id} style={{background:C.amarillo,borderRadius:12,padding:16,marginBottom:12,border:"1px solid #F0CA00"}}>
                   <div style={{fontWeight:800,color:"#7D6608"}}>🔧 Mantenimiento programado — Orden #{o.folio}</div>
                   <div style={{fontSize:13,color:"#7D6608",marginTop:4}}>{o.cliente_nombre} — {o.equipo_tipo}</div>
-                  <div style={{marginTop:8}}><Btn ch="📅 Agendar" onClick={()=>agendarDesdeOrden(o)} color={C.marino} sm/></div>
+                  <div style={{marginTop:8}}>
+                    <Btn ch="📅 Agendar" onClick={()=>agendarDesdeOrden(o)} color={C.marino} sm/>
+                    <Btn ch="🚫 No se realiza" onClick={()=>setConfirmNoRealiza(o)} color={C.error} out sm/>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1739,7 +1856,10 @@ function Agenda({ordenes,usuario,citas,recargarCitas,prefill,limpiarPrefill}){
                     <div style={{fontWeight:700,color:C.marino,fontSize:14}}>{o.cliente_nombre}</div>
                     <div style={{fontSize:12,color:"#aaa"}}>{o.equipo_tipo} — próximo: {o.prev_proximo}</div>
                   </div>
-                  <Btn ch="📅 Agendar" onClick={()=>agendarDesdeOrden(o)} color={C.marino} sm/>
+                  <div>
+                    <Btn ch="📅 Agendar" onClick={()=>agendarDesdeOrden(o)} color={C.marino} sm/>
+                    <Btn ch="🚫 No se realiza" onClick={()=>setConfirmNoRealiza(o)} color={C.error} out sm/>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1775,6 +1895,16 @@ function Agenda({ordenes,usuario,citas,recargarCitas,prefill,limpiarPrefill}){
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}>
           <div style={{width:"100%",maxWidth:400}}>
             <FormularioCita usuario={usuario} citas={citas} citaExistente={citaSel} onCancelar={()=>{setReagendando(false);setCitaSel(null);}} onGuardado={()=>{setReagendando(false);setCitaSel(null);recargarCitas();}}/>
+          </div>
+        </div>
+      )}
+      {confirmNoRealiza&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+            <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Confirmar que no se realizará?</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Se le avisará a {confirmNoRealiza.cliente_nombre} que el mantenimiento no se realizará.</div>
+            <Btn ch="Sí, confirmar" onClick={confirmarNoRealiza} color={C.error} full/>
+            <Btn ch="Volver" onClick={()=>setConfirmNoRealiza(null)} color={C.texto} out full/>
           </div>
         </div>
       )}
@@ -2301,10 +2431,7 @@ function App(){
     }else if(accion==="pendiente"){
       await sb.from("ordenes").update({mant_estado:"pendiente"}).eq("id",orden.id);
     }else if(accion==="no_realiza"){
-      await sb.from("ordenes").update({mant_estado:"no_realiza"}).eq("id",orden.id);
-      const msg=`Le informamos que el mantenimiento programado para ${orden.prev_proximo} no se realizará. Si lo requiere, contáctenos.`;
-      const link=orden.envio_wa?linkWhatsApp(orden.envio_wa,msg):linkCorreo(orden.envio_email,"Mantenimiento no realizado",msg);
-      window.open(link,"_blank");
+      await marcarMantNoRealiza(orden);
     }
     setMantPopup(null);
   }
@@ -2368,11 +2495,11 @@ function App(){
     <div style={{minHeight:"100vh",background:C.gris}}>
       <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={pedirLogout} onLogoClick={()=>intentarNavegar(()=>{setOe(null);setSelec(null);setVista("dashboard");})}/>
       <div style={{maxWidth:600,margin:"0 auto"}}>
-        {vista==="dashboard"&&<Dashboard usuario={usuario} ordenes={ordenes} notifs={notifs} citas={citas} setVista={setVista} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}} recargarCitas={cargarCitas} onAgendarOrden={irAgendarDesdeOrden} pendientesOffline={pendientesOffline} onSincronizar={intentarSincronizar}/>}
+        {vista==="dashboard"&&<Dashboard usuario={usuario} ordenes={ordenes} notifs={notifs} citas={citas} setVista={setVista} recargarNotifs={()=>{cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}} recargarCitas={cargarCitas} recargarOrdenes={cargarOrdenes} onAgendarOrden={irAgendarDesdeOrden} pendientesOffline={pendientesOffline} onSincronizar={intentarSincronizar}/>}
         {vista==="nueva_orden"&&<NuevaOrden usuario={usuario} onDone={refrescar} oe={oe} setSucia={setSucia} guardarBorradorRef={guardarBorradorRef} intentarSalir={intentarNavegar}/>}
         {vista==="ordenes"&&!selec&&<ListaOrdenes ordenes={ordenes} onSel={o=>setSelec(o)} loading={loading} onNueva={()=>{setOe(null);setVista("nueva_orden");}}/>}
         {vista==="ordenes"&&selec&&<DetalleOrden orden={selec} usuario={usuario} onVolver={()=>setSelec(null)} onRefrescar={soloRecargar} onEditar={o=>{setOe(o);setSelec(null);setVista("nueva_orden");}}/>}
-        {vista==="agenda"&&<Agenda ordenes={ordenes} usuario={usuario} citas={citas} recargarCitas={cargarCitas} prefill={citaPrefill} limpiarPrefill={()=>setCitaPrefill(null)}/>}
+        {vista==="agenda"&&<Agenda ordenes={ordenes} usuario={usuario} citas={citas} recargarCitas={cargarCitas} recargarOrdenes={cargarOrdenes} prefill={citaPrefill} limpiarPrefill={()=>setCitaPrefill(null)}/>}
         {vista==="directorio"&&<Directorio usuario={usuario}/>}
         {vista==="config"&&<Config usuario={usuario} onLogout={pedirLogout} historial={historial} onVerHistorial={()=>setVista("historial_completo")}/>}
         {vista==="historial_completo"&&<HistorialCompleto usuario={usuario} onVolver={()=>setVista("config")}/>}
