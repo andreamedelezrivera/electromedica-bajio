@@ -74,12 +74,15 @@ module.exports = async (req, res) => {
     auth.setCredentials({ refresh_token: refreshToken });
     const drive = google.drive({ version: "v3", auth });
 
+    const quien = await drive.about.get({ fields: "user(emailAddress,displayName)" });
+
     const carpetaRaizId = await obtenerOCrearCarpeta(drive, "Notificaciones EMB", "root");
     const carpetaAnioId = await obtenerOCrearCarpeta(drive, String(anio), carpetaRaizId);
 
-    await drive.files.create({
+    const archivoCreado = await drive.files.create({
       resource: { name: nombreArchivo, parents: [carpetaAnioId] },
-      media: { mimeType: "text/csv", body: csv }
+      media: { mimeType: "text/csv", body: csv },
+      fields: "id,webViewLink"
     });
 
     if (!modoPrueba) {
@@ -90,7 +93,17 @@ module.exports = async (req, res) => {
       });
     }
 
-    res.status(200).json({ ok: true, archivo: nombreArchivo, cantidad: data.length, modoPrueba, borrado: !modoPrueba });
+    res.status(200).json({
+      ok: true,
+      archivo: nombreArchivo,
+      cantidad: data.length,
+      modoPrueba,
+      borrado: !modoPrueba,
+      cuentaGoogle: quien.data.user,
+      link: archivoCreado.data.webViewLink,
+      carpetaRaizId,
+      carpetaAnioId
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
