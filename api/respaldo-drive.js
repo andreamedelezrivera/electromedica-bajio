@@ -53,9 +53,15 @@ module.exports = async (req, res) => {
   }
 
   try {
+    const q = req.query || {};
+    const modoPrueba = q.prueba === "true";
     const hoy = new Date();
-    const mes = hoy.getMonth() === 0 ? 11 : hoy.getMonth() - 1;
-    const anio = hoy.getMonth() === 0 ? hoy.getFullYear() - 1 : hoy.getFullYear();
+    let mes = hoy.getMonth() === 0 ? 11 : hoy.getMonth() - 1;
+    let anio = hoy.getMonth() === 0 ? hoy.getFullYear() - 1 : hoy.getFullYear();
+    if (q.anio && q.mes) {
+      anio = parseInt(q.anio, 10);
+      mes = parseInt(q.mes, 10) - 1;
+    }
     const desde = new Date(anio, mes, 1).toISOString();
     const hasta = new Date(anio, mes + 1, 1).toISOString();
 
@@ -81,13 +87,15 @@ module.exports = async (req, res) => {
       media: { mimeType: "text/csv", body: csv }
     });
 
-    const ids = data.map(n => n.id).join(",");
-    await fetch(`${SUPABASE_URL}/rest/v1/notificaciones?id=in.(${ids})`, {
-      method: "DELETE",
-      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
-    });
+    if (!modoPrueba) {
+      const ids = data.map(n => n.id).join(",");
+      await fetch(`${SUPABASE_URL}/rest/v1/notificaciones?id=in.(${ids})`, {
+        method: "DELETE",
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+      });
+    }
 
-    res.status(200).json({ ok: true, archivo: nombreArchivo, cantidad: data.length });
+    res.status(200).json({ ok: true, archivo: nombreArchivo, cantidad: data.length, modoPrueba, borrado: !modoPrueba });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
