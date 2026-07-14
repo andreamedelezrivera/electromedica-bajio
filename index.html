@@ -1403,6 +1403,7 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
   }
   async function eliminar(){
     setEliminando(true);
+    await sb.from("citas").update({orden_id:null}).eq("orden_id",orden.id);
     const {error} = await sb.from("ordenes").delete().eq("id",orden.id);
     if(error){
       alert("Error al eliminar: " + error.message + " | Code: " + error.code);
