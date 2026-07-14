@@ -37,18 +37,11 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-  if (!keyJson || !rootFolderId) {
-    res.status(500).json({ error: "Faltan las variables de entorno GOOGLE_SERVICE_ACCOUNT_KEY / GOOGLE_DRIVE_FOLDER_ID en Vercel" });
-    return;
-  }
-
-  let credentials;
-  try {
-    credentials = JSON.parse(keyJson);
-  } catch (e) {
-    res.status(500).json({ error: "GOOGLE_SERVICE_ACCOUNT_KEY no es un JSON válido" });
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+  if (!clientId || !clientSecret || !refreshToken) {
+    res.status(500).json({ error: "Faltan las variables de entorno GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET / GOOGLE_OAUTH_REFRESH_TOKEN en Vercel" });
     return;
   }
 
@@ -77,10 +70,12 @@ module.exports = async (req, res) => {
     const csv = generarCSV(data);
     const nombreArchivo = `notificaciones_${NOMBRES_MES[mes]}_${anio}.csv`;
 
-    const auth = new google.auth.GoogleAuth({ credentials, scopes: ["https://www.googleapis.com/auth/drive"] });
+    const auth = new google.auth.OAuth2(clientId, clientSecret);
+    auth.setCredentials({ refresh_token: refreshToken });
     const drive = google.drive({ version: "v3", auth });
 
-    const carpetaAnioId = await obtenerOCrearCarpeta(drive, String(anio), rootFolderId);
+    const carpetaRaizId = await obtenerOCrearCarpeta(drive, "Notificaciones EMB", "root");
+    const carpetaAnioId = await obtenerOCrearCarpeta(drive, String(anio), carpetaRaizId);
 
     await drive.files.create({
       resource: { name: nombreArchivo, parents: [carpetaAnioId] },
