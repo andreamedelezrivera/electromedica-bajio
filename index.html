@@ -746,8 +746,9 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
   ];
   const hoyStr=new Date().toISOString().slice(0,10);
   const mananaStr=new Date(Date.now()+86400000).toISOString().slice(0,10);
-  const citasHoy=(citas||[]).filter(c=>c.fecha===hoyStr&&c.estado!=="cancelada"&&(usuario.rol==="admin"||c.ingeniero_id===usuario.id||c.colaborador_id===usuario.id)).sort((a,b)=>a.hora.localeCompare(b.hora));
-  const citasManana=(citas||[]).filter(c=>c.fecha===mananaStr&&c.estado!=="cancelada"&&(usuario.rol==="admin"||c.ingeniero_id===usuario.id||c.colaborador_id===usuario.id)).sort((a,b)=>a.hora.localeCompare(b.hora));
+  const veTodo=usuario.rol==="admin"||usuario.rol==="supervisor";
+  const citasHoy=(citas||[]).filter(c=>c.fecha===hoyStr&&c.estado!=="cancelada"&&(veTodo||c.ingeniero_id===usuario.id||c.colaborador_id===usuario.id)).sort((a,b)=>a.hora.localeCompare(b.hora));
+  const citasManana=(citas||[]).filter(c=>c.fecha===mananaStr&&c.estado!=="cancelada"&&(veTodo||c.ingeniero_id===usuario.id||c.colaborador_id===usuario.id)).sort((a,b)=>a.hora.localeCompare(b.hora));
   const pendientesUrgentes=ordenes.filter(o=>{
     if(!o.prev_realiza||!o.prev_proximo||o.mant_cita_id||o.mant_estado==="no_realiza")return false;
     const d=diasHasta(o.prev_proximo);
@@ -1689,7 +1690,7 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
     const ha=clienteHistorial.includes(a.id)?0:1,hb=clienteHistorial.includes(b.id)?0:1;
     return ha-hb;
   });
-  const ingIdActual=esAdmin?(c.ingeniero_id?parseInt(c.ingeniero_id):null):usuario.id;
+  const ingIdActual=esAdmin?(c.ingeniero_id?parseInt(c.ingeniero_id):null):(citaExistente?citaExistente.ingeniero_id:usuario.id);
   const colabIdActual=c.colaborador_id?parseInt(c.colaborador_id):null;
   const citasDelDia=(c.fecha&&ingIdActual)?citas.filter(x=>x.fecha===c.fecha&&x.estado!=="cancelada"&&x.id!==citaExistente?.id&&(x.ingeniero_id===ingIdActual||x.colaborador_id===ingIdActual||(colabIdActual&&(x.ingeniero_id===colabIdActual||x.colaborador_id===colabIdActual)))).sort((a,b)=>a.hora.localeCompare(b.hora)):[];
   const horariosLibres=(c.fecha&&ingIdActual)?HORAS_DIA.filter(h=>{
@@ -1702,7 +1703,7 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
     setError("");return true;
   }
   function buscarConflicto(){
-    const ingId=esAdmin?parseInt(c.ingeniero_id):usuario.id;
+    const ingId=ingIdActual;
     const nueva={fecha:c.fecha,hora:c.hora,duracion_horas:parseFloat(c.duracion_horas),traslado_minutos:parseInt(c.traslado_minutos)};
     const involucrados=[ingId];
     if(c.colaborador_id)involucrados.push(parseInt(c.colaborador_id));
@@ -1716,7 +1717,7 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
   }
   async function guardar(){
     setGuardando(true);
-    const ingId=esAdmin?parseInt(c.ingeniero_id):usuario.id;
+    const ingId=ingIdActual;
     const datos={
       cliente_nombre:c.cliente_nombre,cliente_direccion:c.cliente_direccion,cliente_telefono:c.cliente_telefono,
       ingeniero_id:ingId,colaborador_id:c.colaborador_id?parseInt(c.colaborador_id):null,
@@ -1736,7 +1737,9 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
       }
     }
     const msg=`📅 Cita ${citaExistente?"reagendada":"agendada"}: ${c.cliente_nombre} — ${c.fecha} ${c.hora} — ${nombreU(ingId)}`;
-    await sb.from("notificaciones").insert([{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:ingId}]);
+    const notifsCita=[{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:ingId}];
+    if(datos.colaborador_id)notifsCita.push({mensaje:msg,para_usuario_id:datos.colaborador_id});
+    await sb.from("notificaciones").insert(notifsCita);
     if(c.cliente_telefono||prefill){
       const msgCliente=`Su cita de servicio con Electromédica del Bajío quedó ${citaExistente?"reagendada":"agendada"} para el ${c.fecha} a las ${c.hora} con Ing. ${nombreU(ingId)}. Motivo: ${c.descripcion}`;
       notificarCliente({telefono:c.cliente_telefono,mensaje:msgCliente,asunto:"Cita de servicio"});
@@ -1767,7 +1770,7 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
         <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Compañero (opcional)</div>
         <select value={c.colaborador_id} onChange={e=>{upd("colaborador_id",e.target.value);upd("hora","");}} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff"}}>
           <option value="">-- Ninguno --</option>
-          {usuariosApp.filter(u=>u.id!==(esAdmin?parseInt(c.ingeniero_id||0):usuario.id)).map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+          {usuariosApp.filter(u=>u.id!==ingIdActual).map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
         </select>
       </div>
       {c.fecha&&!ingIdActual&&<div style={{fontSize:13,color:C.texto,marginBottom:14}}>Selecciona un ingeniero para ver los horarios disponibles.</div>}
@@ -1804,7 +1807,7 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
             <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>¿Confirmar esta cita?</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>
               {c.cliente_nombre}<br/>{c.fecha} a las {c.hora} ({c.duracion_horas}h + {c.traslado_minutos}min traslado)<br/>
-              {esAdmin?nombreU(parseInt(c.ingeniero_id)):usuario.nombre}{c.colaborador_id?` + ${nombreU(parseInt(c.colaborador_id))}`:""}
+              {nombreU(ingIdActual)}{c.colaborador_id?` + ${nombreU(parseInt(c.colaborador_id))}`:""}
             </div>
             <Btn ch={guardando?"Guardando...":"Sí, agendar"} onClick={guardar} color={C.exito} full dis={guardando}/>
             <Btn ch="Cancelar" onClick={()=>setConfirmando(false)} color={C.texto} out full dis={guardando}/>
@@ -1874,7 +1877,9 @@ function Agenda({ordenes,usuario,citas,recargarCitas,recargarOrdenes,recargarNot
   async function cancelarCita(){
     await sb.from("citas").update({estado:"cancelada"}).eq("id",citaSel.id);
     const msg=`❌ Cita cancelada: ${citaSel.cliente_nombre} — ${citaSel.fecha} ${citaSel.hora.slice(0,5)}`;
-    await sb.from("notificaciones").insert([{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:citaSel.ingeniero_id}]);
+    const notifsCancel=[{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:citaSel.ingeniero_id}];
+    if(citaSel.colaborador_id)notifsCancel.push({mensaje:msg,para_usuario_id:citaSel.colaborador_id});
+    await sb.from("notificaciones").insert(notifsCancel);
     if(citaSel.cliente_telefono){
       notificarCliente({telefono:citaSel.cliente_telefono,mensaje:`Su cita programada para el ${citaSel.fecha} a las ${citaSel.hora.slice(0,5)} ha sido cancelada. Contáctenos para reprogramar.`,asunto:"Cita cancelada"});
     }
