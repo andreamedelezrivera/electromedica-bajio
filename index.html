@@ -1735,6 +1735,8 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
         const {data:ordenActualizada}=await sb.from("ordenes").update({mant_cita_id:citaId,mant_estado:"agendado"}).eq("id",prefill.orden_id).select("cliente_nombre,equipo_tipo").single();
         if(ordenActualizada)await limpiarNotifsMantenimiento(ordenActualizada.cliente_nombre,ordenActualizada.equipo_tipo);
       }
+      const chequeoCliente=await verificarClienteDirectorio({cliente_nombre:c.cliente_nombre,cliente_dir:c.cliente_direccion,cliente_tel:c.cliente_telefono});
+      if(chequeoCliente.tipo==="nuevo")await crearClienteDirectorio({cliente_nombre:c.cliente_nombre,cliente_dir:c.cliente_direccion,cliente_tel:c.cliente_telefono});
     }
     const msg=`📅 Cita ${citaExistente?"reagendada":"agendada"}: ${c.cliente_nombre} — ${c.fecha} ${c.hora} — ${nombreU(ingId)}`;
     const notifsCita=[{mensaje:msg,para_rol:"admin"},{mensaje:msg,para_usuario_id:ingId}];
