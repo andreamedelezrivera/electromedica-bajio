@@ -841,7 +841,7 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
       )}
       {confirmCompletar&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>¿Marcar esta cita como completada?</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>{confirmCompletar.cliente_nombre} — {confirmCompletar.hora.slice(0,5)}</div>
             <Btn ch="Sí, completada" onClick={()=>marcarCompletada(confirmCompletar)} color={C.exito} full/>
@@ -851,7 +851,7 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
       )}
       {confirmNoRealiza&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Confirmar que no se realizará?</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Se le avisará a {confirmNoRealiza.cliente_nombre} que el mantenimiento no se realizará.</div>
             <Btn ch="Sí, confirmar" onClick={confirmarNoRealiza} color={C.error} full/>
@@ -1061,7 +1061,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
       </Card>
       {pendienteCliente&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>📇 Actualizar directorio de clientes</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Los datos de "{pendienteCliente.existente.nombre}" en esta orden son distintos a los del directorio. ¿Actualizar el directorio con los nuevos datos?</div>
             <Btn ch="Sí, actualizar" onClick={()=>resolverSyncCliente(true)} color={C.exito} full/>
@@ -1353,7 +1353,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
       </div>
       {pendienteCliente&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>📇 Actualizar directorio de clientes</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Los datos de "{pendienteCliente.existente.nombre}" en esta orden son distintos a los del directorio. ¿Actualizar el directorio con los nuevos datos?</div>
             <Btn ch="Sí, actualizar" onClick={()=>resolverSyncCliente(true)} color={C.exito} full/>
@@ -1805,7 +1805,7 @@ function FormularioCita({usuario,citas,onCancelar,onGuardado,prefill,citaExisten
       </div>
       {confirmando&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>¿Confirmar esta cita?</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>
               {c.cliente_nombre}<br/>{c.fecha} a las {c.hora} ({c.duracion_horas}h + {c.traslado_minutos}min traslado)<br/>
@@ -1985,7 +1985,7 @@ function Agenda({ordenes,usuario,citas,recargarCitas,recargarOrdenes,recargarNot
       )}
       {citaSel&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:360,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:360,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             {!reagendando&&!confirmCancelar&&(
               <>
                 <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>{citaSel.cliente_nombre}</div>
@@ -2017,7 +2017,7 @@ function Agenda({ordenes,usuario,citas,recargarCitas,recargarOrdenes,recargarNot
       )}
       {confirmNoRealiza&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Confirmar que no se realizará?</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Se le avisará a {confirmNoRealiza.cliente_nombre} que el mantenimiento no se realizará.</div>
             <Btn ch="Sí, confirmar" onClick={confirmarNoRealiza} color={C.error} full/>
@@ -2435,7 +2435,7 @@ function Directorio({usuario}){
       )}
       {confirmNuevo&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>¿Agregar este cliente?</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>{nuevo.nombre}</div>
             <Btn ch="Sí, agregar" onClick={agregarCliente} color={C.exito} full/>
@@ -2445,7 +2445,7 @@ function Directorio({usuario}){
       )}
       {confirmBorrar&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Eliminar este cliente del directorio?</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>{confirmBorrar.nombre} — no afecta las órdenes ya guardadas.</div>
             <Btn ch="Sí, eliminar" onClick={()=>borrarCliente(confirmBorrar.id)} color={C.error} full/>
@@ -2565,7 +2565,7 @@ function Pendientes({usuario}){
       })}
       {confirmBorrar&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Eliminar este pendiente?</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>{confirmBorrar.texto}</div>
             <Btn ch="Sí, eliminar" onClick={()=>borrar(confirmBorrar.id)} color={C.error} full/>
@@ -2697,7 +2697,7 @@ function App(){
       <Nav vista={vista} setVista={v=>intentarNavegar(()=>{setOe(null);setVista(v);setSelec(null);})} notifs={notifs.length}/>
       {confirmSalida&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>⚠️ Tienes cambios sin guardar</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>¿Qué deseas hacer con esta orden antes de salir?</div>
             <Btn ch="💾 Guardar y salir" onClick={confGuardarYSalir} color={C.exito} full/>
@@ -2708,7 +2708,7 @@ function App(){
       )}
       {mantPopup&&!confirmNoRealiza&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:360,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:360,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:8}}>🔧 Próximo mantenimiento</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>
               El mantenimiento de <strong>{mantPopup.orden.cliente_nombre}</strong> ({mantPopup.orden.equipo_tipo}) está programado para <strong>{mantPopup.orden.prev_proximo}</strong> ({mantPopup.etapa==="2sem"?"faltan 2 semanas":mantPopup.etapa==="1.5sem"?"faltan 1.5 semanas":"falta 1 semana"}). ¿Qué deseas hacer?
@@ -2721,7 +2721,7 @@ function App(){
       )}
       {mantPopup&&confirmNoRealiza&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:360,width:"100%"}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:360,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
             <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Confirmar que no se realizará?</div>
             <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Se le avisará a {mantPopup.orden.cliente_nombre} que el mantenimiento no se realizará.</div>
             <Btn ch="Sí, confirmar" onClick={()=>{setConfirmNoRealiza(false);resolverMantPopup("no_realiza");}} color={C.error} full/>
