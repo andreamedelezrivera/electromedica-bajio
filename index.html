@@ -96,6 +96,9 @@ function comoArray(v){
 const OFFLINE_KEY="emb_ordenes_pendientes";
 function leerPendientesOffline(){try{return JSON.parse(localStorage.getItem(OFFLINE_KEY)||"[]");}catch(e){return [];}}
 function guardarPendientesOffline(lista){localStorage.setItem(OFFLINE_KEY,JSON.stringify(lista));}
+const CLIENTES_CACHE_KEY="emb_clientes_cache";
+function leerClientesCache(){try{return JSON.parse(localStorage.getItem(CLIENTES_CACHE_KEY)||"[]");}catch(e){return [];}}
+function guardarClientesCache(lista){try{localStorage.setItem(CLIENTES_CACHE_KEY,JSON.stringify(lista));}catch(e){}}
 function agregarPendienteOffline(item){
   const lista=leerPendientesOffline();
   lista.push({...item,id_local:Date.now()+"_"+Math.random().toString(36).slice(2),fecha_cola:new Date().toISOString()});
@@ -166,6 +169,18 @@ async function construirPDFOrden(orden){
       });
       if(orden.prev_comentarios)linea(`Comentarios: ${orden.prev_comentarios}`);
       if(orden.prev_proximo)linea(`Próximo mantenimiento: ${orden.prev_proximo}`);
+      const prevFotos=comoArray(orden.prev_fotos);
+      if(prevFotos.length>0){
+        if(y>650){doc.addPage();y=50;}
+        let x=M;
+        prevFotos.slice(0,6).forEach(f=>{
+          if(x+80>W-M){x=M;y+=90;}
+          if(y>700){doc.addPage();y=50;x=M;}
+          try{doc.addImage(f,"JPEG",x,y,80,80);}catch(e){}
+          x+=90;
+        });
+        y+=100;
+      }
     }
     espacio(8);
   }
@@ -175,6 +190,18 @@ async function construirPDFOrden(orden){
     if(orden.corr_realiza){
       linea(orden.corr_descripcion||"");
       if(orden.corr_refacciones)linea(`Refacciones: ${orden.corr_refacciones}`);
+      const corrFotos=comoArray(orden.corr_fotos);
+      if(corrFotos.length>0){
+        if(y>650){doc.addPage();y=50;}
+        let x=M;
+        corrFotos.slice(0,6).forEach(f=>{
+          if(x+80>W-M){x=M;y+=90;}
+          if(y>700){doc.addPage();y=50;x=M;}
+          try{doc.addImage(f,"JPEG",x,y,80,80);}catch(e){}
+          x+=90;
+        });
+        y+=100;
+      }
     }
     espacio(8);
   }
@@ -465,8 +492,19 @@ function BuscadorCliente({val,set,onSeleccionar}){
     if(!val||val.trim().length<2){setSugerencias([]);return;}
     let activo=true;
     (async()=>{
-      const {data}=await sb.from("clientes").select("*").ilike("nombre",`%${val.trim()}%`).limit(6);
-      if(activo)setSugerencias(data||[]);
+      let data=null;
+      try{
+        const r=await sb.from("clientes").select("*").ilike("nombre",`%${val.trim()}%`).limit(6);
+        data=r.data;
+      }catch(e){}
+      if(!activo)return;
+      if(data&&data.length>0){setSugerencias(data);return;}
+      if(!data||!navigator.onLine){
+        const q=val.trim().toLowerCase();
+        setSugerencias(leerClientesCache().filter(c=>c.nombre&&c.nombre.toLowerCase().includes(q)).slice(0,6));
+        return;
+      }
+      setSugerencias([]);
     })();
     return ()=>{activo=false;};
   },[val]);
@@ -540,7 +578,7 @@ function Header({titulo,usuario,onLogout,onLogoClick}){
 }
 
 function Nav({vista,setVista,notifs}){
-  const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"pendientes",ico:"📝",lbl:"Pendientes"},{id:"directorio",ico:"📁",lbl:"Directorio"},{id:"config",ico:"⚙️",lbl:"Config"}];
+  const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"pendientes",ico:"📝",lbl:"Recordatorios"},{id:"directorio",ico:"👤",lbl:"Directorio"},{id:"config",ico:"⚙️",lbl:"Config"}];
   const vistaActiva=vista==="historial_completo"?"config":vista;
   return (
     <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.marino,display:"flex",zIndex:200,borderTop:`2px solid ${C.cielo}`}}>
@@ -787,11 +825,11 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
       )}
       {tareasHoy.length>0&&(
         <Card style={{background:C.amarillo,border:"1px solid #F0CA00"}}>
-          <div style={{fontWeight:800,color:"#7D6608",marginBottom:10}}>📝 Pendientes con recordatorio</div>
+          <div style={{fontWeight:800,color:"#7D6608",marginBottom:10}}>📝 Recordatorios</div>
           {tareasHoy.map(t=>(
             <div key={t.id} style={{fontSize:13,color:"#7D6608",marginBottom:6}}>{t.texto}</div>
           ))}
-          <Btn ch="Ver Pendientes" onClick={()=>setVista("pendientes")} color={C.marino} sm/>
+          <Btn ch="Ver Recordatorios" onClick={()=>setVista("pendientes")} color={C.marino} sm/>
         </Card>
       )}
       {notifs.length>0&&(
@@ -1049,8 +1087,9 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     lev_obs:oe?.lev_obs||"",fotos:comoArray(oe?.fotos),
     prev_realiza:oe?.prev_realiza??null,prev_checklist:oe?.prev_checklist||{},
     prev_comentarios:oe?.prev_comentarios||"",prev_proximo:oe?.prev_proximo||"",
+    prev_fotos:comoArray(oe?.prev_fotos),
     corr_realiza:oe?.corr_realiza??null,corr_descripcion:oe?.corr_descripcion||"",
-    corr_refacciones:oe?.corr_refacciones||"",
+    corr_refacciones:oe?.corr_refacciones||"",corr_fotos:comoArray(oe?.corr_fotos),
     firma_nombre:oe?.firma_nombre||"",
     envio_wa:oe?.envio_wa||"",envio_email:oe?.envio_email||""
   });
@@ -1073,9 +1112,9 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     };
   },[]);
   function upd(k,v){setO(p=>({...p,[k]:v}));setSucia&&setSucia(true);}
-  function agregarFoto(base64){setO(p=>({...p,fotos:[...(p.fotos||[]),base64]}));setSucia&&setSucia(true);}
-  function quitarFoto(idx){setO(p=>({...p,fotos:(p.fotos||[]).filter((_,i)=>i!==idx)}));setSucia&&setSucia(true);}
-  function manejarFotos(e){
+  function agregarFoto(campo,base64){setO(p=>({...p,[campo]:[...(p[campo]||[]),base64]}));setSucia&&setSucia(true);}
+  function quitarFoto(campo,idx){setO(p=>({...p,[campo]:(p[campo]||[]).filter((_,i)=>i!==idx)}));setSucia&&setSucia(true);}
+  function manejarFotos(campo,e){
     const files=Array.from(e.target.files||[]);
     files.forEach(file=>{
       const reader=new FileReader();
@@ -1088,7 +1127,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
           const canvas=document.createElement("canvas");
           canvas.width=w;canvas.height=h;
           canvas.getContext("2d").drawImage(img,0,0,w,h);
-          agregarFoto(canvas.toDataURL("image/jpeg",0.7));
+          agregarFoto(campo,canvas.toDataURL("image/jpeg",0.7));
         };
         img.src=ev.target.result;
       };
@@ -1184,14 +1223,14 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
               <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>📸 Fotos del equipo <span style={{color:C.error}}>* (mínimo 3)</span></div>
               <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
                 📷 Tomar / subir foto
-                <input type="file" accept="image/*" capture="environment" multiple onChange={manejarFotos} style={{display:"none"}}/>
+                <input type="file" accept="image/*" capture="environment" multiple onChange={e=>manejarFotos("fotos",e)} style={{display:"none"}}/>
               </label>
               {o.fotos?.length>0&&(
                 <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
                   {o.fotos.map((f,i)=>(
                     <div key={i} style={{position:"relative"}}>
                       <img src={f} style={{width:72,height:72,objectFit:"cover",borderRadius:8,border:`1px solid ${C.borde}`}}/>
-                      <span onClick={()=>quitarFoto(i)} style={{position:"absolute",top:-6,right:-6,background:C.error,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer",fontWeight:700}}>×</span>
+                      <span onClick={()=>quitarFoto("fotos",i)} style={{position:"absolute",top:-6,right:-6,background:C.error,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer",fontWeight:700}}>×</span>
                     </div>
                   ))}
                 </div>
@@ -1221,6 +1260,21 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
                   {secs.map(sec=><SecCL key={sec} sec={sec} data={o.prev_checklist} onChange={(s,v)=>upd("prev_checklist",{...o.prev_checklist,[s]:v})}/>)}
                   <TA lbl="Comentarios adicionales" val={o.prev_comentarios} set={v=>upd("prev_comentarios",v)} ph="Observaciones, hallazgos, recomendaciones..."/>
                   <Inp lbl="📅 Programar próximo mantenimiento" val={o.prev_proximo} set={v=>upd("prev_proximo",v)} type="date"/>
+                  <div style={{fontSize:13,color:C.texto,marginTop:10,marginBottom:4,fontWeight:600}}>📸 Fotos del preventivo <span style={{color:C.error}}>* (mínimo 3)</span></div>
+                  <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
+                    📷 Tomar / subir foto
+                    <input type="file" accept="image/*" capture="environment" multiple onChange={e=>manejarFotos("prev_fotos",e)} style={{display:"none"}}/>
+                  </label>
+                  {o.prev_fotos?.length>0&&(
+                    <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
+                      {o.prev_fotos.map((f,i)=>(
+                        <div key={i} style={{position:"relative"}}>
+                          <img src={f} style={{width:72,height:72,objectFit:"cover",borderRadius:8,border:`1px solid ${C.borde}`}}/>
+                          <span onClick={()=>quitarFoto("prev_fotos",i)} style={{position:"absolute",top:-6,right:-6,background:C.error,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer",fontWeight:700}}>×</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </Card>
@@ -1246,6 +1300,21 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
                 <div>
                   <TA lbl="Descripción del trabajo correctivo" val={o.corr_descripcion} set={v=>upd("corr_descripcion",v)} req ph="Describe el problema, diagnóstico y procedimiento..."/>
                   <TA lbl="Refacciones utilizadas" val={o.corr_refacciones} set={v=>upd("corr_refacciones",v)} ph="Piezas, componentes o materiales..."/>
+                  <div style={{fontSize:13,color:C.texto,marginTop:10,marginBottom:4,fontWeight:600}}>📸 Fotos del correctivo <span style={{color:C.error}}>* (mínimo 3)</span></div>
+                  <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
+                    📷 Tomar / subir foto
+                    <input type="file" accept="image/*" capture="environment" multiple onChange={e=>manejarFotos("corr_fotos",e)} style={{display:"none"}}/>
+                  </label>
+                  {o.corr_fotos?.length>0&&(
+                    <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
+                      {o.corr_fotos.map((f,i)=>(
+                        <div key={i} style={{position:"relative"}}>
+                          <img src={f} style={{width:72,height:72,objectFit:"cover",borderRadius:8,border:`1px solid ${C.borde}`}}/>
+                          <span onClick={()=>quitarFoto("corr_fotos",i)} style={{position:"absolute",top:-6,right:-6,background:C.error,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,cursor:"pointer",fontWeight:700}}>×</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </Card>
@@ -1266,6 +1335,8 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
                     if(o.prev_realiza===null){setErrEnvio("Define si se realizó mantenimiento preventivo.");return;}
                     if(o.corr_realiza===null){setErrEnvio("Define si se realizó mantenimiento correctivo.");return;}
                     if((o.fotos||[]).length<3){setErrEnvio("Agrega al menos 3 fotos del servicio (paso 2).");return;}
+                    if(o.prev_realiza&&(o.prev_fotos||[]).length<3){setErrEnvio("Agrega al menos 3 fotos del preventivo (paso 3).");return;}
+                    if(o.corr_realiza&&(o.corr_fotos||[]).length<3){setErrEnvio("Agrega al menos 3 fotos del correctivo (paso 4).");return;}
                     if(!o.envio_wa&&!o.envio_email){setErrEnvio("Ingresa WhatsApp o correo del cliente.");return;}
                     setErrEnvio("");guardar("completada");
                   }} color={C.exito} dis={saving}/>
@@ -1531,6 +1602,11 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
             ))}
             {orden.prev_comentarios&&<div style={{marginTop:8,fontSize:13}}><strong>Comentarios:</strong> {orden.prev_comentarios}</div>}
             {orden.prev_proximo&&<div style={{marginTop:8,background:C.amarillo,borderRadius:8,padding:8,fontSize:13,color:"#7D6608"}}>📅 Próximo: <strong>{orden.prev_proximo}</strong></div>}
+            {comoArray(orden.prev_fotos).length>0&&(
+              <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:12}}>
+                {comoArray(orden.prev_fotos).map((f,i)=><img key={i} src={f} style={{width:80,height:80,objectFit:"cover",borderRadius:8,border:`1px solid ${C.borde}`}}/>)}
+              </div>
+            )}
           </div>
         )}
         {orden.prev_realiza===null&&<div style={{color:"#aaa"}}>Pendiente</div>}
@@ -1545,6 +1621,11 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
             <div style={{color:C.exito,fontWeight:700,marginBottom:8}}>✓ Realizado</div>
             <div style={{fontSize:14,marginBottom:8}}>{orden.corr_descripcion}</div>
             {orden.corr_refacciones&&<div style={{fontSize:13}}><strong>Refacciones:</strong> {orden.corr_refacciones}</div>}
+            {comoArray(orden.corr_fotos).length>0&&(
+              <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:12}}>
+                {comoArray(orden.corr_fotos).map((f,i)=><img key={i} src={f} style={{width:80,height:80,objectFit:"cover",borderRadius:8,border:`1px solid ${C.borde}`}}/>)}
+              </div>
+            )}
           </div>
         )}
         {orden.corr_realiza===null&&<div style={{color:"#aaa"}}>Pendiente</div>}
@@ -2235,7 +2316,7 @@ function Directorio({usuario}){
   async function cargar(){
     setLoading(true);
     const {data:cli}=await sb.from("clientes").select("*").order("nombre");
-    if(cli)setClientes(cli);
+    if(cli){setClientes(cli);guardarClientesCache(cli);}
     const {data:us}=await sb.from("usuarios").select("id,nombre,usuario,rol,foto").order("id");
     if(us)setUsuarios(us);
     setLoading(false);
@@ -2265,7 +2346,7 @@ function Directorio({usuario}){
   }
   return (
     <div style={{padding:16,paddingBottom:80}}>
-      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>📁 Directorio</div>
+      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>👤 Directorio</div>
       <div style={{display:"flex",background:C.gris,borderRadius:10,padding:4,marginBottom:16}}>
         {[{id:"clientes",lbl:"Clientes"},{id:"usuarios",lbl:"Usuarios"}].map(t=>(
           <div key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,textAlign:"center",padding:"8px 2px",borderRadius:8,background:tab===t.id?C.marino:"transparent",color:tab===t.id?"#fff":C.texto,fontWeight:700,fontSize:13,cursor:"pointer"}}>{t.lbl}</div>
@@ -2411,7 +2492,7 @@ function Pendientes({usuario}){
   const hoyStr=new Date().toISOString().slice(0,10);
   return (
     <div style={{padding:16,paddingBottom:80}}>
-      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>📝 Pendientes</div>
+      <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>📝 Recordatorios</div>
       <div style={{fontSize:12,color:"#aaa",marginBottom:14}}>Tu espacio personal — solo tú ves estas tareas.</div>
       <Card>
         <TA lbl="Nueva tarea" val={texto} set={setTexto} ph="Escribe algo que necesites hacer o agendar..."/>
@@ -2419,7 +2500,7 @@ function Pendientes({usuario}){
         <Btn ch="➕ Agregar" onClick={agregar} color={C.marino} full/>
       </Card>
       {loading&&<div style={{textAlign:"center",color:C.texto,padding:20}}>Cargando...</div>}
-      {!loading&&tareas.length===0&&<div style={{textAlign:"center",color:"#aaa",padding:20}}>Sin pendientes por ahora.</div>}
+      {!loading&&tareas.length===0&&<div style={{textAlign:"center",color:"#aaa",padding:20}}>Sin recordatorios por ahora.</div>}
       {!loading&&tareas.map(t=>{
         const vencida=t.fecha_recordatorio&&t.fecha_recordatorio<=hoyStr&&!t.completado;
         if(editando===t.id){
@@ -2535,6 +2616,7 @@ function App(){
   },[sucia]);
   async function cargarOrdenes(){setLoading(true);const {data}=await sb.from("ordenes").select("*").order("id",{ascending:false});if(data)setOrdenes(data);setLoading(false);}
   async function cargarCitas(){const {data}=await sb.from("citas").select("*").order("fecha").order("hora");if(data)setCitas(data);}
+  async function cargarClientesCache(){const {data}=await sb.from("clientes").select("*").order("nombre");if(data)guardarClientesCache(data);}
   async function cargarNotifs(rol,uid){
     const ocultos=await idsOcultosPara(uid);
     let q=sb.from("notificaciones").select("*").eq("leida",false).eq("leida_historial",false).order("fecha",{ascending:false});
@@ -2553,7 +2635,7 @@ function App(){
   }
   useEffect(()=>{
     if(usuario){
-      cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);cargarCitas();
+      cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);cargarCitas();cargarClientesCache();
       revisarEscalacionMantenimiento(usuario,setMantPopup);
       intentarSincronizar();
     }
@@ -2563,7 +2645,7 @@ function App(){
   function refrescar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);setSelec(null);setVista("ordenes");}
   function soloRecargar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}
   if(!usuario) return <Login onLogin={login}/>;
-  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",pendientes:"Pendientes",directorio:"Directorio",config:"Configuración",historial_completo:"Historial"};
+  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",pendientes:"Recordatorios",directorio:"Directorio",config:"Configuración",historial_completo:"Historial"};
   return (
     <div style={{minHeight:"100vh",background:C.gris}}>
       <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={pedirLogout} onLogoClick={()=>intentarNavegar(()=>{setOe(null);setSelec(null);setVista("dashboard");})}/>
