@@ -723,7 +723,7 @@ function Dashboard({usuario,ordenes,notifs,citas,setVista,recargarNotifs,recarga
   useEffect(()=>{
     (async()=>{
       const hoyStr=new Date().toISOString().slice(0,10);
-      const {data}=await sb.from("tareas_pendientes").select("*").eq("usuario_id",usuario.id).eq("completado",false).lte("fecha_recordatorio",hoyStr).order("fecha_recordatorio");
+      const {data}=await sb.from("tareas_pendientes").select("*").or(`usuario_id.eq.${usuario.id},usuario_id_2.eq.${usuario.id}`).eq("completado",false).lte("fecha_recordatorio",hoyStr).order("fecha_recordatorio");
       if(data)setTareasHoy(data);
     })();
   },[usuario.id]);
@@ -2460,21 +2460,28 @@ function Pendientes({usuario}){
   const [loading,setLoading]=useState(true);
   const [texto,setTexto]=useState("");
   const [fecha,setFecha]=useState("");
+  const [compartirCon,setCompartirCon]=useState("");
+  const [usuariosApp,setUsuariosApp]=useState([]);
   const [confirmBorrar,setConfirmBorrar]=useState(null);
   const [editando,setEditando]=useState(null);
   const [editTexto,setEditTexto]=useState("");
   const [editFecha,setEditFecha]=useState("");
+  const [editCompartirCon,setEditCompartirCon]=useState("");
   async function cargar(){
     setLoading(true);
-    const {data}=await sb.from("tareas_pendientes").select("*").eq("usuario_id",usuario.id).order("completado").order("fecha_recordatorio",{ascending:true,nullsFirst:false}).order("id",{ascending:false});
+    const {data}=await sb.from("tareas_pendientes").select("*").or(`usuario_id.eq.${usuario.id},usuario_id_2.eq.${usuario.id}`).order("completado").order("fecha_recordatorio",{ascending:true,nullsFirst:false}).order("id",{ascending:false});
     if(data)setTareas(data);
     setLoading(false);
   }
-  useEffect(()=>{cargar();},[]);
+  useEffect(()=>{cargar();(async()=>{const {data}=await sb.from("usuarios").select("id,nombre,rol").order("id");if(data)setUsuariosApp(data);})();},[]);
+  function otroUsuario(t){
+    const otroId=t.usuario_id===usuario.id?t.usuario_id_2:t.usuario_id;
+    return otroId?nombreU(otroId):null;
+  }
   async function agregar(){
     if(!texto.trim())return;
-    await sb.from("tareas_pendientes").insert({usuario_id:usuario.id,texto:texto.trim(),fecha_recordatorio:fecha||null});
-    setTexto("");setFecha("");
+    await sb.from("tareas_pendientes").insert({usuario_id:usuario.id,usuario_id_2:compartirCon?parseInt(compartirCon):null,texto:texto.trim(),fecha_recordatorio:fecha||null});
+    setTexto("");setFecha("");setCompartirCon("");
     cargar();
   }
   async function toggleCompletado(t){
@@ -2485,10 +2492,11 @@ function Pendientes({usuario}){
     setEditando(t.id);
     setEditTexto(t.texto);
     setEditFecha(t.fecha_recordatorio||"");
+    setEditCompartirCon(t.usuario_id===usuario.id?(t.usuario_id_2?String(t.usuario_id_2):""):String(t.usuario_id));
   }
   async function guardarEdicion(){
     if(!editTexto.trim())return;
-    await sb.from("tareas_pendientes").update({texto:editTexto.trim(),fecha_recordatorio:editFecha||null}).eq("id",editando);
+    await sb.from("tareas_pendientes").update({texto:editTexto.trim(),fecha_recordatorio:editFecha||null,usuario_id_2:editCompartirCon?parseInt(editCompartirCon):null}).eq("id",editando);
     setEditando(null);
     cargar();
   }
@@ -2501,21 +2509,36 @@ function Pendientes({usuario}){
   return (
     <div style={{padding:16,paddingBottom:80}}>
       <div style={{color:C.marino,fontWeight:800,fontSize:18,marginBottom:16}}>📝 Recordatorios</div>
-      <div style={{fontSize:12,color:"#aaa",marginBottom:14}}>Tu espacio personal — solo tú ves estas tareas.</div>
+      <div style={{fontSize:12,color:"#aaa",marginBottom:14}}>Tu espacio personal — solo tú y quien elijas compartir ven cada tarea.</div>
       <Card>
         <TA lbl="Nueva tarea" val={texto} set={setTexto} ph="Escribe algo que necesites hacer o agendar..."/>
         <Inp lbl="Recordatorio (opcional)" val={fecha} set={setFecha} type="date"/>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Compartir con (opcional)</div>
+          <select value={compartirCon} onChange={e=>setCompartirCon(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff"}}>
+            <option value="">-- Nadie --</option>
+            {usuariosApp.filter(u=>u.id!==usuario.id).map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+          </select>
+        </div>
         <Btn ch="➕ Agregar" onClick={agregar} color={C.marino} full/>
       </Card>
       {loading&&<div style={{textAlign:"center",color:C.texto,padding:20}}>Cargando...</div>}
       {!loading&&tareas.length===0&&<div style={{textAlign:"center",color:"#aaa",padding:20}}>Sin recordatorios por ahora.</div>}
       {!loading&&tareas.map(t=>{
         const vencida=t.fecha_recordatorio&&t.fecha_recordatorio<=hoyStr&&!t.completado;
+        const otro=otroUsuario(t);
         if(editando===t.id){
           return (
             <Card key={t.id}>
               <TA lbl="Editar tarea" val={editTexto} set={setEditTexto} ph="Escribe algo que necesites hacer o agendar..."/>
               <Inp lbl="Recordatorio (opcional)" val={editFecha} set={setEditFecha} type="date"/>
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Compartir con (opcional)</div>
+                <select value={editCompartirCon} onChange={e=>setEditCompartirCon(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff"}}>
+                  <option value="">-- Nadie --</option>
+                  {usuariosApp.filter(u=>u.id!==usuario.id).map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+                </select>
+              </div>
               <div style={{display:"flex",gap:8}}>
                 <Btn ch="💾 Guardar" onClick={guardarEdicion} color={C.exito} sm/>
                 <Btn ch="Cancelar" onClick={()=>setEditando(null)} color={C.texto} out sm/>
@@ -2530,6 +2553,7 @@ function Pendientes({usuario}){
               <div style={{flex:1}}>
                 <div style={{fontSize:14,color:C.texto,textDecoration:t.completado?"line-through":"none"}}>{t.texto}</div>
                 {t.fecha_recordatorio&&<div style={{fontSize:12,color:vencida?"#7D6608":"#aaa",fontWeight:vencida?700:400,marginTop:4}}>{vencida?"⏰ ":"📅 "}{t.fecha_recordatorio}</div>}
+                {otro&&<div style={{fontSize:12,color:C.cielo,fontWeight:600,marginTop:4}}>🤝 Compartido con {otro}</div>}
               </div>
               <button onClick={()=>empezarEditar(t)} style={{background:"transparent",border:"none",color:C.marino,cursor:"pointer",fontSize:16}}>✏️</button>
               <button onClick={()=>setConfirmBorrar(t)} style={{background:"transparent",border:"none",color:C.error,cursor:"pointer",fontSize:16}}>🗑️</button>
