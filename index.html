@@ -272,10 +272,14 @@ async function enviarResumenOrdenPorCorreo(orden){
   const enviado=await enviarCorreoAutomatico(email,asunto,msg,{nombre:nombreArchivo,base64:adjuntoBase64});
   return {ok:enviado};
 }
-function enviarResumenOrdenPorWhatsApp(orden,ventanaPrevia){
+async function enviarResumenOrdenPorWhatsApp(orden,ventanaPrevia){
   const tel=orden.envio_wa||orden.cliente_tel;
   if(!tel){if(ventanaPrevia&&!ventanaPrevia.closed)ventanaPrevia.close();return false;}
   const msg=`Hola ${orden.cliente_nombre}, le compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío. Estado: ${orden.estado==="completada"?"Completada":orden.estado}.`;
+  if(WHATSAPP_BUSINESS_API_LISTA){
+    const enviado=await enviarWhatsAppAutomatico(tel,msg);
+    if(enviado){if(ventanaPrevia&&!ventanaPrevia.closed)ventanaPrevia.close();return true;}
+  }
   const url=linkWhatsApp(tel,msg);
   if(ventanaPrevia&&!ventanaPrevia.closed)ventanaPrevia.location.href=url;
   else window.open(url,"_blank");
@@ -323,7 +327,7 @@ function linkWhatsApp(telefono,mensaje){
 function linkCorreo(email,asunto,mensaje){
   return `mailto:${email||""}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje)}`;
 }
-const WHATSAPP_BUSINESS_API_LISTA=false;
+const WHATSAPP_BUSINESS_API_LISTA=true;
 async function enviarCorreoAutomatico(email,asunto,mensaje,adjunto){
   try{
     const body={to:email,subject:asunto,texto:mensaje};
@@ -334,11 +338,20 @@ async function enviarCorreoAutomatico(email,asunto,mensaje,adjunto){
     return false;
   }
 }
-async function notificarCliente({telefono,email,mensaje,asunto}){
-  if(WHATSAPP_BUSINESS_API_LISTA&&telefono){
-    return;
+async function enviarWhatsAppAutomatico(telefono,mensaje){
+  try{
+    const resp=await fetch("/api/enviar-whatsapp",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:telefono,texto:mensaje})});
+    return resp.ok;
+  }catch(e){
+    return false;
   }
+}
+async function notificarCliente({telefono,email,mensaje,asunto}){
   const asuntoFinal=asunto||"Electromédica del Bajío";
+  if(WHATSAPP_BUSINESS_API_LISTA&&telefono){
+    const enviado=await enviarWhatsAppAutomatico(telefono,mensaje);
+    if(enviado)return;
+  }
   if(!telefono&&email){
     const enviado=await enviarCorreoAutomatico(email,asuntoFinal,mensaje);
     if(enviado)return;
@@ -1004,7 +1017,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden General #${folio} — ${o.cliente_nombre||"sin cliente"}`});
     if(estado==="completada"){
       try{await enviarResumenOrdenPorCorreo(datos);}catch(e){}
-      try{enviarResumenOrdenPorWhatsApp(datos,whatsappWin);}catch(e){}
+      try{await enviarResumenOrdenPorWhatsApp(datos,whatsappWin);}catch(e){}
     }
     setSaving(false);
     const chequeo=await verificarClienteDirectorio(o);
@@ -1193,7 +1206,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden #${folio} — ${o.cliente_nombre||"sin cliente"} | ${o.equipo_tipo}`});
     if(estado==="completada"){
       try{await enviarResumenOrdenPorCorreo(datos);}catch(e){}
-      try{enviarResumenOrdenPorWhatsApp(datos,whatsappWin);}catch(e){}
+      try{await enviarResumenOrdenPorWhatsApp(datos,whatsappWin);}catch(e){}
     }
     setSaving(false);
     const chequeo=await verificarClienteDirectorio(o);
@@ -1671,7 +1684,9 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         <Btn ch={generandoPDF?"Generando...":"📄 PDF"} onClick={descargarPDF} color={C.cielo} sm dis={generandoPDF}/>
         <Btn ch="📱 WhatsApp" onClick={()=>{
-          if(!enviarResumenOrdenPorWhatsApp(orden))alert("Esta orden no tiene un WhatsApp registrado.");
+          const tel=orden.envio_wa||orden.cliente_tel;
+          const win=tel?window.open("","_blank"):null;
+          enviarResumenOrdenPorWhatsApp(orden,win).then(ok=>{if(!ok)alert("Esta orden no tiene un WhatsApp registrado.");});
         }} color={C.exito} sm/>
         <Btn ch={enviandoCorreo?"Enviando...":"✉️ Correo"} onClick={enviarCorreoOrden} color={C.marino} sm dis={enviandoCorreo}/>
       </div>
