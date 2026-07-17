@@ -272,11 +272,13 @@ async function enviarResumenOrdenPorCorreo(orden){
   const enviado=await enviarCorreoAutomatico(email,asunto,msg,{nombre:nombreArchivo,base64:adjuntoBase64});
   return {ok:enviado};
 }
-function enviarResumenOrdenPorWhatsApp(orden){
+function enviarResumenOrdenPorWhatsApp(orden,ventanaPrevia){
   const tel=orden.envio_wa||orden.cliente_tel;
-  if(!tel)return false;
+  if(!tel){if(ventanaPrevia&&!ventanaPrevia.closed)ventanaPrevia.close();return false;}
   const msg=`Hola ${orden.cliente_nombre}, le compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío. Estado: ${orden.estado==="completada"?"Completada":orden.estado}.`;
-  window.open(linkWhatsApp(tel,msg),"_blank");
+  const url=linkWhatsApp(tel,msg);
+  if(ventanaPrevia&&!ventanaPrevia.closed)ventanaPrevia.location.href=url;
+  else window.open(url,"_blank");
   return true;
 }
 function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"});}
@@ -964,7 +966,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     });
     e.target.value="";
   }
-  async function guardar(estado){
+  async function guardar(estado,whatsappWin){
     setSaving(true);
     const ubicacion=await obtenerUbicacion();
     const firma_imagen=!firmaTocada?(oe?.firma_imagen||null):(firmaDibujada&&firmaCanvasRef.current?firmaCanvasRef.current.toDataURL("image/png"):null);
@@ -977,6 +979,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
       await sb.from("ordenes").update(datos).eq("id",oe.id);
     }else{
       if(!navigator.onLine){
+        if(whatsappWin&&!whatsappWin.closed)whatsappWin.close();
         agregarPendienteOffline({tipo:"general",datos});
         guardadoOkRef.current=true;
         setSaving(false);setSucia&&setSucia(false);
@@ -988,6 +991,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
         const {error}=await sb.from("ordenes").insert(datos);
         if(error)throw error;
       }catch(e){
+        if(whatsappWin&&!whatsappWin.closed)whatsappWin.close();
         agregarPendienteOffline({tipo:"general",datos});
         guardadoOkRef.current=true;
         setSaving(false);setSucia&&setSucia(false);
@@ -1000,7 +1004,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden General #${folio} — ${o.cliente_nombre||"sin cliente"}`});
     if(estado==="completada"){
       try{await enviarResumenOrdenPorCorreo(datos);}catch(e){}
-      try{enviarResumenOrdenPorWhatsApp(datos);}catch(e){}
+      try{enviarResumenOrdenPorWhatsApp(datos,whatsappWin);}catch(e){}
     }
     setSaving(false);
     const chequeo=await verificarClienteDirectorio(o);
@@ -1067,7 +1071,11 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
         {err&&<div style={{color:C.error,fontSize:13,marginBottom:10,padding:"8px 12px",background:"#fdecea",borderRadius:8}}>{err}</div>}
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <Btn ch="💾 Guardar borrador" onClick={()=>guardar("borrador")} color={C.cielo} out sm dis={saving}/>
-          <Btn ch={saving?"Guardando...":"✅ Completar"} onClick={()=>{if(validar())guardar("completada");}} color={C.exito} dis={saving}/>
+          <Btn ch={saving?"Guardando...":"✅ Completar"} onClick={()=>{
+            if(!validar())return;
+            const whatsappWin=(o.envio_wa||o.cliente_tel)?window.open("","_blank"):null;
+            guardar("completada",whatsappWin);
+          }} color={C.exito} dis={saving}/>
         </div>
       </Card>
       {pendienteCliente&&(
@@ -1151,7 +1159,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     e.target.value="";
   }
   const secs=EQUIPOS[o.equipo_tipo]||[];
-  async function guardar(estado){
+  async function guardar(estado,whatsappWin){
     setSaving(true);
     const ubicacion=await obtenerUbicacion();
     const firma_imagen=!firmaTocada?(oe?.firma_imagen||null):(firmaDibujada&&firmaCanvasRef.current?firmaCanvasRef.current.toDataURL("image/png"):null);
@@ -1160,6 +1168,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
       await sb.from("ordenes").update(datos).eq("id",oe.id);
     }else{
       if(!navigator.onLine){
+        if(whatsappWin&&!whatsappWin.closed)whatsappWin.close();
         agregarPendienteOffline({tipo:"mant",datos});
         guardadoOkRef.current=true;
         setSaving(false);setSucia&&setSucia(false);
@@ -1171,6 +1180,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
         const {error}=await sb.from("ordenes").insert(datos);
         if(error)throw error;
       }catch(e){
+        if(whatsappWin&&!whatsappWin.closed)whatsappWin.close();
         agregarPendienteOffline({tipo:"mant",datos});
         guardadoOkRef.current=true;
         setSaving(false);setSucia&&setSucia(false);
@@ -1183,7 +1193,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden #${folio} — ${o.cliente_nombre||"sin cliente"} | ${o.equipo_tipo}`});
     if(estado==="completada"){
       try{await enviarResumenOrdenPorCorreo(datos);}catch(e){}
-      try{enviarResumenOrdenPorWhatsApp(datos);}catch(e){}
+      try{enviarResumenOrdenPorWhatsApp(datos,whatsappWin);}catch(e){}
     }
     setSaving(false);
     const chequeo=await verificarClienteDirectorio(o);
@@ -1356,7 +1366,9 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
                     if(o.prev_realiza&&(o.prev_fotos||[]).length<3){setErrEnvio("Agrega al menos 3 fotos del preventivo (paso 3).");return;}
                     if(o.corr_realiza&&(o.corr_fotos||[]).length<3){setErrEnvio("Agrega al menos 3 fotos del correctivo (paso 4).");return;}
                     if(!o.envio_wa&&!o.envio_email){setErrEnvio("Ingresa WhatsApp o correo del cliente.");return;}
-                    setErrEnvio("");guardar("completada");
+                    setErrEnvio("");
+                    const whatsappWin=(o.envio_wa||o.cliente_tel)?window.open("","_blank"):null;
+                    guardar("completada",whatsappWin);
                   }} color={C.exito} dis={saving}/>
                 </div>
               </Card>
