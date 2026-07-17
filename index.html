@@ -272,6 +272,13 @@ async function enviarResumenOrdenPorCorreo(orden){
   const enviado=await enviarCorreoAutomatico(email,asunto,msg,{nombre:nombreArchivo,base64:adjuntoBase64});
   return {ok:enviado};
 }
+function enviarResumenOrdenPorWhatsApp(orden){
+  const tel=orden.envio_wa||orden.cliente_tel;
+  if(!tel)return false;
+  const msg=`Hola ${orden.cliente_nombre}, le compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío. Estado: ${orden.estado==="completada"?"Completada":orden.estado}.`;
+  window.open(linkWhatsApp(tel,msg),"_blank");
+  return true;
+}
 function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"});}
 async function verificarClienteDirectorio(o){
   const {data}=await sb.from("clientes").select("*").ilike("nombre",o.cliente_nombre).limit(1);
@@ -991,7 +998,10 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     }
     guardadoOkRef.current=true;
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden General #${folio} — ${o.cliente_nombre||"sin cliente"}`});
-    if(estado==="completada"){try{await enviarResumenOrdenPorCorreo(datos);}catch(e){}}
+    if(estado==="completada"){
+      try{await enviarResumenOrdenPorCorreo(datos);}catch(e){}
+      try{enviarResumenOrdenPorWhatsApp(datos);}catch(e){}
+    }
     setSaving(false);
     const chequeo=await verificarClienteDirectorio(o);
     if(chequeo.tipo==="nuevo"){await crearClienteDirectorio(o);setSucia&&setSucia(false);onDone();}
@@ -1171,7 +1181,10 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     }
     guardadoOkRef.current=true;
     await sb.from("notificaciones").insert({mensaje:`${estado==="completada"?"✅":"💾"} Orden #${folio} — ${o.cliente_nombre||"sin cliente"} | ${o.equipo_tipo}`});
-    if(estado==="completada"){try{await enviarResumenOrdenPorCorreo(datos);}catch(e){}}
+    if(estado==="completada"){
+      try{await enviarResumenOrdenPorCorreo(datos);}catch(e){}
+      try{enviarResumenOrdenPorWhatsApp(datos);}catch(e){}
+    }
     setSaving(false);
     const chequeo=await verificarClienteDirectorio(o);
     if(chequeo.tipo==="nuevo"){await crearClienteDirectorio(o);setSucia&&setSucia(false);onDone();}
@@ -1646,10 +1659,7 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         <Btn ch={generandoPDF?"Generando...":"📄 PDF"} onClick={descargarPDF} color={C.cielo} sm dis={generandoPDF}/>
         <Btn ch="📱 WhatsApp" onClick={()=>{
-          const tel=orden.envio_wa||orden.cliente_tel;
-          if(!tel){alert("Esta orden no tiene un WhatsApp registrado.");return;}
-          const msg=`Hola ${orden.cliente_nombre}, le compartimos el resumen de la Orden #${orden.folio} (${orden.equipo_tipo}) realizada por Electromédica del Bajío. Estado: ${orden.estado==="completada"?"Completada":orden.estado}.`;
-          window.open(linkWhatsApp(tel,msg),"_blank");
+          if(!enviarResumenOrdenPorWhatsApp(orden))alert("Esta orden no tiene un WhatsApp registrado.");
         }} color={C.exito} sm/>
         <Btn ch={enviandoCorreo?"Enviando...":"✉️ Correo"} onClick={enviarCorreoOrden} color={C.marino} sm dis={enviandoCorreo}/>
       </div>
