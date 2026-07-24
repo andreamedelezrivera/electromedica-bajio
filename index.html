@@ -230,7 +230,7 @@ async function construirPDFOrden(orden){
   espacio(14);
   const colabs=comoArray(orden.colaboradores);
   linea(`Realizado por: ${nombreU(orden.creado_por)}${colabs.length?` + ${colabs.map(id=>nombreU(id)).join(", ")}`:""}`,10);
-  linea(`Fecha: ${orden.fecha_guardado?new Date(orden.fecha_guardado).toLocaleString("es-MX"):""}`,10);
+  linea(`Fecha: ${fechaHoraMX(orden.fecha_guardado)}`,10);
 
   const nombreArchivo=`Orden_${orden.folio}_${(orden.cliente_nombre||"cliente").replace(/[^a-zA-Z0-9]+/g,"_")}.pdf`;
   const blob=doc.output("blob");
@@ -285,7 +285,18 @@ async function enviarResumenOrdenPorWhatsApp(orden,ventanaPrevia){
   else window.open(url,"_blank");
   return true;
 }
-function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"});}
+function ahora(){return new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short",timeZone:"America/Mexico_City"});}
+function fechaHoraMX(iso){
+  if(!iso)return "";
+  // fecha_guardado siempre se guarda como ISO en UTC (new Date().toISOString()).
+  // Si Supabase la regresa sin marca de zona (columna timestamp sin tz), la tratamos como UTC
+  // antes de convertirla a hora de Mexico, para que la hora del PDF no salga corrida.
+  let s=String(iso);
+  if(!/[zZ]|[+-]\d{2}:?\d{2}$/.test(s))s=s+"Z";
+  const d=new Date(s);
+  if(isNaN(d.getTime()))return "";
+  return d.toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short",timeZone:"America/Mexico_City"});
+}
 async function verificarClienteDirectorio(o){
   const {data}=await sb.from("clientes").select("*").ilike("nombre",o.cliente_nombre).limit(1);
   const cli=data&&data[0];
@@ -1060,7 +1071,7 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
         <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>📸 Fotos del servicio <span style={{color:C.error}}>* (mínimo 3)</span></div>
         <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
           📷 Tomar / subir foto
-          <input type="file" accept="image/*" capture="environment" multiple onChange={manejarFotos} style={{display:"none"}}/>
+          <input type="file" accept="image/*" multiple onChange={manejarFotos} style={{display:"none"}}/>
         </label>
         {o.fotos?.length>0&&(
           <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
@@ -1264,7 +1275,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
               <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>📸 Fotos del equipo <span style={{color:C.error}}>* (mínimo 3)</span></div>
               <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
                 📷 Tomar / subir foto
-                <input type="file" accept="image/*" capture="environment" multiple onChange={e=>manejarFotos("fotos",e)} style={{display:"none"}}/>
+                <input type="file" accept="image/*" multiple onChange={e=>manejarFotos("fotos",e)} style={{display:"none"}}/>
               </label>
               {o.fotos?.length>0&&(
                 <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
@@ -1304,7 +1315,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
                   <div style={{fontSize:13,color:C.texto,marginTop:10,marginBottom:4,fontWeight:600}}>📸 Fotos del preventivo <span style={{color:C.error}}>* (mínimo 3)</span></div>
                   <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
                     📷 Tomar / subir foto
-                    <input type="file" accept="image/*" capture="environment" multiple onChange={e=>manejarFotos("prev_fotos",e)} style={{display:"none"}}/>
+                    <input type="file" accept="image/*" multiple onChange={e=>manejarFotos("prev_fotos",e)} style={{display:"none"}}/>
                   </label>
                   {o.prev_fotos?.length>0&&(
                     <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
@@ -1344,7 +1355,7 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
                   <div style={{fontSize:13,color:C.texto,marginTop:10,marginBottom:4,fontWeight:600}}>📸 Fotos del correctivo <span style={{color:C.error}}>* (mínimo 3)</span></div>
                   <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
                     📷 Tomar / subir foto
-                    <input type="file" accept="image/*" capture="environment" multiple onChange={e=>manejarFotos("corr_fotos",e)} style={{display:"none"}}/>
+                    <input type="file" accept="image/*" multiple onChange={e=>manejarFotos("corr_fotos",e)} style={{display:"none"}}/>
                   </label>
                   {o.corr_fotos?.length>0&&(
                     <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
