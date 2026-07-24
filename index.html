@@ -1000,7 +1000,10 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
       fotos:o.fotos,firma_nombre:o.firma_nombre,firma_imagen,
       envio_wa:o.envio_wa,envio_email:o.envio_email};
     if(oe){
-      await sb.from("ordenes").update(datos).eq("id",oe.id);
+      const creadorOriginal=oe.creado_por;
+      const colabPrev=comoArray(oe.colaboradores);
+      const colabNuevos=(usuario.id!==creadorOriginal&&!colabPrev.includes(usuario.id))?[...colabPrev,usuario.id]:colabPrev;
+      await sb.from("ordenes").update({...datos,creado_por:creadorOriginal,colaboradores:colabNuevos}).eq("id",oe.id);
     }else{
       if(!navigator.onLine){
         if(whatsappWin&&!whatsappWin.closed)whatsappWin.close();
@@ -1189,7 +1192,10 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
     const firma_imagen=!firmaTocada?(oe?.firma_imagen||null):(firmaDibujada&&firmaCanvasRef.current?firmaCanvasRef.current.toDataURL("image/png"):null);
     const datos={folio,estado,creado_por:usuario.id,fecha_guardado:new Date().toISOString(),ubicacion,...o,firma_imagen};
     if(oe){
-      await sb.from("ordenes").update(datos).eq("id",oe.id);
+      const creadorOriginal=oe.creado_por;
+      const colabPrev=comoArray(oe.colaboradores);
+      const colabNuevos=(usuario.id!==creadorOriginal&&!colabPrev.includes(usuario.id))?[...colabPrev,usuario.id]:colabPrev;
+      await sb.from("ordenes").update({...datos,creado_por:creadorOriginal,colaboradores:colabNuevos}).eq("id",oe.id);
     }else{
       if(!navigator.onLine){
         if(whatsappWin&&!whatsappWin.closed)whatsappWin.close();
@@ -1525,14 +1531,12 @@ function ListaOrdenes({ordenes,onSel,loading,onNueva}){
 function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
   const [confirmEliminar,setConfirmEliminar]=useState(false);
   const [eliminando,setEliminando]=useState(false);
-  const [solicitado,setSolicitado]=useState(false);
   const [generandoPDF,setGenerandoPDF]=useState(false);
   const [enviandoCorreo,setEnviandoCorreo]=useState(false);
   const esAdmin=usuario.rol==="admin";
   const esBorrador=orden.estado==="borrador";
   const esEnProceso=orden.estado==="en_proceso";
   const esDueñoBorrador=esBorrador&&orden.creado_por===usuario.id;
-  const esColaborador=comoArray(orden.colaboradores).includes(usuario.id);
   const esGen=orden.equipo_tipo?.startsWith("GENERAL:");
   async function descargarPDF(){
     setGenerandoPDF(true);
@@ -1566,22 +1570,6 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
     onRefrescar();
     onVolver();
   }
-  async function solicitarPermiso(){
-    await sb.from("solicitudes_edicion").insert({
-      orden_id: orden.id,
-      orden_folio: orden.folio,
-      solicitado_por: usuario.id,
-      estado: "pendiente"
-    });
-    const msg=`🔔 SOLICITUD|${orden.folio}|${usuario.id}|${orden.creado_por}|${usuario.nombre.split(" ")[0]} solicita permiso para editar Orden #${orden.folio} — ${orden.cliente_nombre}`;
-    const notifs=[{mensaje:msg,para_rol:"admin"}];
-    const creadorInfo=USUARIOS.find(u=>u.id===orden.creado_por);
-    if(orden.creado_por&&orden.creado_por!==usuario.id&&creadorInfo?.rol!=="admin"){
-      notifs.push({mensaje:msg,para_usuario_id:orden.creado_por});
-    }
-    await sb.from("notificaciones").insert(notifs);
-    setSolicitado(true);
-  }
   return (
     <div style={{padding:16,paddingBottom:80}}>
       <button onClick={onVolver} style={{background:"transparent",border:`1.5px solid ${C.borde}`,borderRadius:8,padding:"6px 14px",fontSize:13,cursor:"pointer",marginBottom:16}}>← Volver</button>
@@ -1591,10 +1579,8 @@ function DetalleOrden({orden,usuario,onVolver,onRefrescar,onEditar}){
           <Badge tipo={orden.estado}/>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {(esAdmin||esDueñoBorrador||esColaborador)&&<Btn ch="✏️ Editar" onClick={()=>onEditar(orden)} color={C.cielo} sm/>}
+          {(esAdmin||orden.estado!=="completada")&&<Btn ch="✏️ Editar" onClick={()=>onEditar(orden)} color={C.cielo} sm/>}
           {(esAdmin||esDueñoBorrador)&&<Btn ch="🗑️ Eliminar" onClick={()=>setConfirmEliminar(true)} color={C.error} sm/>}
-          {!esAdmin&&!esDueñoBorrador&&!esColaborador&&!esEnProceso&&!solicitado&&<Btn ch="✏️ Solicitar permiso" onClick={solicitarPermiso} color={C.cielo} sm/>}
-          {!esAdmin&&solicitado&&<div style={{background:"#D5F5E3",color:"#1E8449",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700}}>✓ Solicitud enviada</div>}
         </div>
       </div>
       {esEnProceso&&(
