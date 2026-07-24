@@ -1072,10 +1072,16 @@ function OrdenGeneral({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
         <TA lbl="Descripción del trabajo realizado" val={o.descripcion} set={v=>upd("descripcion",v)} req ph="Describe detalladamente el trabajo realizado..."/>
         <TA lbl="Materiales utilizados" val={o.materiales} set={v=>upd("materiales",v)} ph="Lista los materiales o refacciones utilizadas..."/>
         <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>📸 Fotos del servicio <span style={{color:C.error}}>* (mínimo 3)</span></div>
-        <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
-          📷 Tomar / subir foto
-          <input type="file" accept="image/*" multiple onChange={manejarFotos} style={{display:"none"}}/>
-        </label>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+          <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700}}>
+            📷 Tomar foto
+            <input type="file" accept="image/*" capture="environment" multiple onChange={manejarFotos} style={{display:"none"}}/>
+          </label>
+          <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700}}>
+            🖼️ Galería
+            <input type="file" accept="image/*" multiple onChange={manejarFotos} style={{display:"none"}}/>
+          </label>
+        </div>
         {o.fotos?.length>0&&(
           <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
             {o.fotos.map((f,i)=>(
@@ -1279,10 +1285,16 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
               <div style={{background:C.gris,borderRadius:8,padding:12,marginBottom:14,fontSize:13,color:C.texto}}>📅 {ahora()} | 👤 {usuario.nombre}</div>
               <TA lbl="Observaciones y fallas detectadas" val={o.lev_obs} set={v=>upd("lev_obs",v)} ph="Estado general del equipo, fallas visibles..."/>
               <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>📸 Fotos del equipo <span style={{color:C.error}}>* (mínimo 3)</span></div>
-              <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
-                📷 Tomar / subir foto
-                <input type="file" accept="image/*" multiple onChange={e=>manejarFotos("fotos",e)} style={{display:"none"}}/>
-              </label>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700}}>
+                  📷 Tomar foto
+                  <input type="file" accept="image/*" capture="environment" multiple onChange={e=>manejarFotos("fotos",e)} style={{display:"none"}}/>
+                </label>
+                <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700}}>
+                  🖼️ Galería
+                  <input type="file" accept="image/*" multiple onChange={e=>manejarFotos("fotos",e)} style={{display:"none"}}/>
+                </label>
+              </div>
               {o.fotos?.length>0&&(
                 <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
                   {o.fotos.map((f,i)=>(
@@ -1319,10 +1331,16 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
                   <TA lbl="Comentarios adicionales" val={o.prev_comentarios} set={v=>upd("prev_comentarios",v)} ph="Observaciones, hallazgos, recomendaciones..."/>
                   <Inp lbl="📅 Programar próximo mantenimiento" val={o.prev_proximo} set={v=>upd("prev_proximo",v)} type="date"/>
                   <div style={{fontSize:13,color:C.texto,marginTop:10,marginBottom:4,fontWeight:600}}>📸 Fotos del preventivo <span style={{color:C.error}}>* (mínimo 3)</span></div>
-                  <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
-                    📷 Tomar / subir foto
-                    <input type="file" accept="image/*" multiple onChange={e=>manejarFotos("prev_fotos",e)} style={{display:"none"}}/>
-                  </label>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                    <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700}}>
+                      📷 Tomar foto
+                      <input type="file" accept="image/*" capture="environment" multiple onChange={e=>manejarFotos("prev_fotos",e)} style={{display:"none"}}/>
+                    </label>
+                    <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700}}>
+                      🖼️ Galería
+                      <input type="file" accept="image/*" multiple onChange={e=>manejarFotos("prev_fotos",e)} style={{display:"none"}}/>
+                    </label>
+                  </div>
                   {o.prev_fotos?.length>0&&(
                     <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
                       {o.prev_fotos.map((f,i)=>(
@@ -1359,10 +1377,16 @@ function OrdenMant({usuario,onDone,onVolver,oe,setSucia,guardarBorradorRef}){
                   <TA lbl="Descripción del trabajo correctivo" val={o.corr_descripcion} set={v=>upd("corr_descripcion",v)} req ph="Describe el problema, diagnóstico y procedimiento..."/>
                   <TA lbl="Refacciones utilizadas" val={o.corr_refacciones} set={v=>upd("corr_refacciones",v)} ph="Piezas, componentes o materiales..."/>
                   <div style={{fontSize:13,color:C.texto,marginTop:10,marginBottom:4,fontWeight:600}}>📸 Fotos del correctivo <span style={{color:C.error}}>* (mínimo 3)</span></div>
-                  <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700,marginBottom:10}}>
-                    📷 Tomar / subir foto
-                    <input type="file" accept="image/*" multiple onChange={e=>manejarFotos("corr_fotos",e)} style={{display:"none"}}/>
-                  </label>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                    <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700}}>
+                      📷 Tomar foto
+                      <input type="file" accept="image/*" capture="environment" multiple onChange={e=>manejarFotos("corr_fotos",e)} style={{display:"none"}}/>
+                    </label>
+                    <label style={{display:"inline-block",fontSize:13,cursor:"pointer",color:"#fff",background:C.cielo,borderRadius:8,padding:"8px 16px",fontWeight:700}}>
+                      🖼️ Galería
+                      <input type="file" accept="image/*" multiple onChange={e=>manejarFotos("corr_fotos",e)} style={{display:"none"}}/>
+                    </label>
+                  </div>
                   {o.corr_fotos?.length>0&&(
                     <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:6}}>
                       {o.corr_fotos.map((f,i)=>(
