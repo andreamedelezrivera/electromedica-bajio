@@ -45,11 +45,13 @@ module.exports = async (req, res) => {
 
   try {
     const verifResp = await fetch(
-      `${SUPABASE_URL}/rest/v1/usuarios?id=eq.${encodeURIComponent(usuario_id)}&pin=eq.${encodeURIComponent(pin || "")}&select=id`,
+      `${SUPABASE_URL}/rest/v1/usuarios?id=eq.${encodeURIComponent(usuario_id)}&select=id,pin`,
       { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
     );
     const verifData = await verifResp.json();
-    if (!verifResp.ok || !Array.isArray(verifData) || verifData.length === 0) {
+    const fila = Array.isArray(verifData) ? verifData[0] : null;
+    const pinOk = fila && String(fila.pin ?? "").trim() === String(pin ?? "").trim();
+    if (!verifResp.ok || !pinOk) {
       res.status(401).json({ error: "PIN incorrecto" });
       return;
     }
