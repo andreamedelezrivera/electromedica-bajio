@@ -338,6 +338,19 @@ function linkWhatsApp(telefono,mensaje){
 function linkCorreo(email,asunto,mensaje){
   return `mailto:${email||""}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensaje)}`;
 }
+const CONTAB_ACCESO={1:"rw",2:"r"};
+function tieneAccesoContab(usuario){return !!CONTAB_ACCESO[usuario?.id];}
+async function contabFetch(usuario,tabla,metodo,query,datos){
+  const resp=await fetch("/api/contabilidad",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({usuario_id:usuario.id,pin:usuario.pin,tabla,metodo,query,datos})
+  });
+  const data=await resp.json().catch(()=>null);
+  if(!resp.ok)return {ok:false,error:data?.error||data?.message||"Error de Administración",data:null};
+  return {ok:true,data};
+}
+function mxn(n){return "$"+Number(n||0).toLocaleString("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2});}
 const WHATSAPP_BUSINESS_API_LISTA=true;
 async function enviarCorreoAutomatico(email,asunto,mensaje,adjunto){
   try{
@@ -614,8 +627,9 @@ function Header({titulo,usuario,onLogout,onLogoClick}){
   );
 }
 
-function Nav({vista,setVista,notifs}){
+function Nav({vista,setVista,notifs,usuario}){
   const items=[{id:"dashboard",ico:"🏠",lbl:"Inicio"},{id:"ordenes",ico:"📋",lbl:"Órdenes"},{id:"agenda",ico:"📅",lbl:"Agenda"},{id:"pendientes",ico:"📝",lbl:"Recordatorios"},{id:"directorio",ico:"👤",lbl:"Directorio"},{id:"config",ico:"⚙️",lbl:"Config"}];
+  if(tieneAccesoContab(usuario))items.splice(5,0,{id:"administracion",ico:"💼",lbl:"Admin"});
   const vistaActiva=vista==="historial_completo"?"config":vista;
   return (
     <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.marino,display:"flex",zIndex:200,borderTop:`2px solid ${C.cielo}`}}>
@@ -2636,6 +2650,199 @@ function Pendientes({usuario}){
   );
 }
 
+const CONTAB_CATS_ENTRADA=["COBROS","ANTICIPOS","PAGOS FINALES"];
+const CONTAB_CATS_SALIDA=["GASTOS OPERATIVOS","GASTOS DE PERSONAL","GASTOS DE PROYECTO","COMPRAS","IMPUESTOS","RETIRO SOCIO GUILLERMO"];
+const CONTAB_CUENTAS=["BANREGIO","CAJA","SANTANDER"];
+function Administracion({usuario}){
+  const [tab,setTab]=useState("resumen");
+  const [cargando,setCargando]=useState(true);
+  const [error,setError]=useState("");
+  const [movimientos,setMovimientos]=useState([]);
+  const [cobrar,setCobrar]=useState([]);
+  const [pagar,setPagar]=useState([]);
+  const [nomina,setNomina]=useState([]);
+  const [proveedores,setProveedores]=useState([]);
+  const soloLectura=CONTAB_ACCESO[usuario.id]==="r";
+
+  async function cargarTodo(){
+    setCargando(true);setError("");
+    const [rm,rc,rp,rn,rv]=await Promise.all([
+      contabFetch(usuario,"contab_movimientos","GET","select=*&order=fecha.desc"),
+      contabFetch(usuario,"contab_cuentas_cobrar","GET","select=*&order=folio"),
+      contabFetch(usuario,"contab_cuentas_pagar","GET","select=*&order=folio"),
+      contabFetch(usuario,"contab_nomina","GET","select=*&order=folio"),
+      contabFetch(usuario,"contab_proveedores","GET","select=*&order=proveedor")
+    ]);
+    if(!rm.ok||!rc.ok||!rp.ok||!rn.ok||!rv.ok){
+      setError(rm.error||rc.error||rp.error||rn.error||rv.error||"No se pudo cargar Administración.");
+      setCargando(false);return;
+    }
+    setMovimientos(rm.data||[]);setCobrar(rc.data||[]);setPagar(rp.data||[]);setNomina(rn.data||[]);setProveedores(rv.data||[]);
+    setCargando(false);
+  }
+  useEffect(()=>{cargarTodo();},[]);
+
+  if(cargando)return <div style={{padding:16,paddingBottom:80,textAlign:"center",color:C.texto}}>Cargando Administración...</div>;
+  if(error)return <div style={{padding:16,paddingBottom:80,color:C.error}}>⚠️ {error}</div>;
+
+  const hoy=new Date();
+  const inicioMes=new Date(hoy.getFullYear(),hoy.getMonth(),1);
+  const finMes=new Date(hoy.getFullYear(),hoy.getMonth()+1,0,23,59,59);
+  const movMes=movimientos.filter(m=>{const f=new Date(m.fecha+"T00:00:00");return f>=inicioMes&&f<=finMes;});
+  const entradasPorCategoria=CONTAB_CATS_ENTRADA.map(cat=>({cat,total:movMes.filter(m=>m.categoria===cat).reduce((s,m)=>s+Number(m.entrada||0),0)}));
+  const salidasPorCategoria=CONTAB_CATS_SALIDA.map(cat=>({cat,total:movMes.filter(m=>m.categoria===cat).reduce((s,m)=>s+Number(m.salida||0),0)}));
+  const saldoPorCuenta=CONTAB_CUENTAS.map(c=>({cuenta:c,saldo:movimientos.filter(m=>m.cuenta===c).reduce((s,m)=>s+Number(m.entrada||0)-Number(m.salida||0),0)}));
+  const dineroDisponible=saldoPorCuenta.reduce((s,c)=>s+c.saldo,0);
+  const totalCobrar=cobrar.reduce((s,r)=>s+(Number(r.monto_total||0)-Number(r.cobrado||0)),0);
+  const totalPagar=pagar.reduce((s,r)=>s+(Number(r.monto_total||0)-Number(r.pagado||0)),0);
+  const nominaPendiente=nomina.reduce((s,r)=>s+(Number(r.sueldo_base||0)+Number(r.viaticos||0)+Number(r.bonos||0)-Number(r.pagado||0)),0);
+  const flujoNetoMes=movMes.reduce((s,m)=>s+Number(m.entrada||0)-Number(m.salida||0),0);
+  const flujoProyectado=dineroDisponible+totalCobrar-totalPagar-nominaPendiente;
+
+  const TABS=[{id:"resumen",lbl:"Resumen"},{id:"cobrar",lbl:"Por cobrar"},{id:"pagar",lbl:"Por pagar"},{id:"nomina",lbl:"Nómina"},{id:"proveedores",lbl:"Proveedores"},{id:"movimientos",lbl:"Movimientos"}];
+
+  return (
+    <div style={{padding:16,paddingBottom:80}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+        <div style={{color:C.marino,fontWeight:800,fontSize:18}}>💼 Administración</div>
+      </div>
+      {soloLectura&&<div style={{fontSize:12,color:"#8a7500",background:C.amarillo,borderRadius:8,padding:"6px 10px",marginBottom:12,display:"inline-block"}}>👁️ Modo solo lectura</div>}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
+        {TABS.map(t=>(
+          <span key={t.id} onClick={()=>setTab(t.id)} style={{fontSize:12,cursor:"pointer",padding:"6px 12px",borderRadius:14,fontWeight:700,background:tab===t.id?C.marino:"#eee",color:tab===t.id?"#fff":C.texto}}>{t.lbl}</span>
+        ))}
+      </div>
+
+      {tab==="resumen"&&(
+        <>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+            {saldoPorCuenta.map(c=>(
+              <Card key={c.cuenta} style={{flex:"1 1 140px",marginBottom:0}}>
+                <div style={{fontSize:12,color:C.texto,fontWeight:700}}>{c.cuenta}</div>
+                <div style={{fontSize:18,fontWeight:800,color:c.saldo>=0?C.marino:C.error}}>{mxn(c.saldo)}</div>
+              </Card>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+            <Card style={{flex:"1 1 140px",marginBottom:0}}><div style={{fontSize:12,color:C.texto,fontWeight:700}}>💰 Dinero disponible</div><div style={{fontSize:16,fontWeight:800,color:C.marino}}>{mxn(dineroDisponible)}</div></Card>
+            <Card style={{flex:"1 1 140px",marginBottom:0}}><div style={{fontSize:12,color:C.texto,fontWeight:700}}>📥 Por cobrar</div><div style={{fontSize:16,fontWeight:800,color:C.exito}}>{mxn(totalCobrar)}</div></Card>
+            <Card style={{flex:"1 1 140px",marginBottom:0}}><div style={{fontSize:12,color:C.texto,fontWeight:700}}>📤 Por pagar</div><div style={{fontSize:16,fontWeight:800,color:C.error}}>{mxn(totalPagar)}</div></Card>
+            <Card style={{flex:"1 1 140px",marginBottom:0}}><div style={{fontSize:12,color:C.texto,fontWeight:700}}>👥 Nómina pendiente</div><div style={{fontSize:16,fontWeight:800,color:C.error}}>{mxn(nominaPendiente)}</div></Card>
+            <Card style={{flex:"1 1 140px",marginBottom:0}}><div style={{fontSize:12,color:C.texto,fontWeight:700}}>📊 Flujo neto del mes</div><div style={{fontSize:16,fontWeight:800,color:flujoNetoMes>=0?C.exito:C.error}}>{mxn(flujoNetoMes)}</div></Card>
+            <Card style={{flex:"1 1 140px",marginBottom:0}}><div style={{fontSize:12,color:C.texto,fontWeight:700}}>🔮 Flujo proyectado</div><div style={{fontSize:16,fontWeight:800,color:C.marino}}>{mxn(flujoProyectado)}</div></Card>
+          </div>
+          <Card>
+            <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📥 Entradas del mes</div>
+            {entradasPorCategoria.map(e=>(
+              <div key={e.cat} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:`1px solid ${C.borde}`}}>
+                <span style={{color:C.texto}}>{e.cat}</span><strong style={{color:C.marino}}>{mxn(e.total)}</strong>
+              </div>
+            ))}
+          </Card>
+          <Card>
+            <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📤 Salidas del mes</div>
+            {salidasPorCategoria.map(s=>(
+              <div key={s.cat} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:`1px solid ${C.borde}`}}>
+                <span style={{color:C.texto}}>{s.cat}</span><strong style={{color:C.marino}}>{mxn(s.total)}</strong>
+              </div>
+            ))}
+          </Card>
+        </>
+      )}
+
+      {tab==="cobrar"&&(
+        <Card>
+          <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📥 Cuentas por cobrar ({cobrar.length})</div>
+          {cobrar.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
+          {cobrar.map(r=>{
+            const pend=Number(r.monto_total||0)-Number(r.cobrado||0);
+            return (
+              <div key={r.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.borde}`}}>
+                <div style={{display:"flex",justifyContent:"space-between"}}>
+                  <strong style={{fontSize:13,color:C.marino}}>{r.folio} — {r.cliente}</strong>
+                  <span style={{fontSize:12,fontWeight:700,color:pend<=0?C.exito:C.error}}>{pend<=0?"COBRADO":"PENDIENTE"}</span>
+                </div>
+                <div style={{fontSize:12,color:C.texto}}>{r.concepto}</div>
+                <div style={{fontSize:12,color:C.texto}}>Total: {mxn(r.monto_total)} · Cobrado: {mxn(r.cobrado)} · Pendiente: <strong>{mxn(pend)}</strong></div>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
+      {tab==="pagar"&&(
+        <Card>
+          <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📤 Cuentas por pagar ({pagar.length})</div>
+          {pagar.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
+          {pagar.map(r=>{
+            const pend=Number(r.monto_total||0)-Number(r.pagado||0);
+            return (
+              <div key={r.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.borde}`}}>
+                <div style={{display:"flex",justifyContent:"space-between"}}>
+                  <strong style={{fontSize:13,color:C.marino}}>{r.folio} — {r.beneficiario}</strong>
+                  <span style={{fontSize:12,fontWeight:700,color:pend<=0?C.exito:C.error}}>{pend<=0?"PAGADO":"PENDIENTE"}</span>
+                </div>
+                <div style={{fontSize:12,color:C.texto}}>{r.concepto}</div>
+                <div style={{fontSize:12,color:C.texto}}>Total: {mxn(r.monto_total)} · Pagado: {mxn(r.pagado)} · Pendiente: <strong>{mxn(pend)}</strong></div>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
+      {tab==="nomina"&&(
+        <Card>
+          <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>👥 Nómina ({nomina.length})</div>
+          {nomina.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
+          {nomina.map(r=>{
+            const total=Number(r.sueldo_base||0)+Number(r.viaticos||0)+Number(r.bonos||0);
+            const pend=total-Number(r.pagado||0);
+            return (
+              <div key={r.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.borde}`}}>
+                <div style={{display:"flex",justifyContent:"space-between"}}>
+                  <strong style={{fontSize:13,color:C.marino}}>{r.folio} — {nombreU(r.empleado_id)||"—"}</strong>
+                  <span style={{fontSize:12,fontWeight:700,color:pend<=0?C.exito:C.error}}>{pend<=0?"PAGADO":"PENDIENTE"}</span>
+                </div>
+                <div style={{fontSize:12,color:C.texto}}>{r.periodo}</div>
+                <div style={{fontSize:12,color:C.texto}}>Total: {mxn(total)} · Pagado: {mxn(r.pagado)} · Pendiente: <strong>{mxn(pend)}</strong></div>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
+      {tab==="proveedores"&&(
+        <Card>
+          <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>🏭 Proveedores ({proveedores.length})</div>
+          {proveedores.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
+          {proveedores.map(r=>(
+            <div key={r.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.borde}`}}>
+              <strong style={{fontSize:13,color:C.marino}}>{r.proveedor}</strong>
+              <div style={{fontSize:12,color:C.texto}}>{r.descripcion}</div>
+              <div style={{fontSize:12,color:C.texto}}>{r.nombre_contacto&&`${r.nombre_contacto} · `}{r.telefono}</div>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {tab==="movimientos"&&(
+        <Card>
+          <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📒 Movimientos ({movimientos.length})</div>
+          {movimientos.map(m=>(
+            <div key={m.id} style={{padding:"8px 0",borderBottom:`1px solid ${C.borde}`,fontSize:12}}>
+              <div style={{display:"flex",justifyContent:"space-between"}}>
+                <span style={{color:C.texto}}>{m.fecha} · {m.categoria}</span>
+                <strong style={{color:m.tipo==="INGRESO"?C.exito:C.error}}>{m.tipo==="INGRESO"?"+":"-"}{mxn(m.tipo==="INGRESO"?m.entrada:m.salida)}</strong>
+              </div>
+              <div style={{color:"#aaa"}}>{m.descripcion} {m.cliente_proveedor?`· ${m.cliente_proveedor}`:""} · {m.cuenta}</div>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function App(){
   const [usuario,setUsuario]=useState(()=>{try{const u=sessionStorage.getItem("emb_u");return u?JSON.parse(u):null;}catch(e){return null;}});
   const [vista,setVista]=useState("dashboard");
@@ -2738,7 +2945,7 @@ function App(){
   function refrescar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);setSelec(null);setVista("ordenes");}
   function soloRecargar(){cargarOrdenes();cargarNotifs(usuario.rol,usuario.id);cargarHistorial(usuario.rol,usuario.id);}
   if(!usuario) return <Login onLogin={login}/>;
-  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",pendientes:"Recordatorios",directorio:"Directorio",config:"Configuración",historial_completo:"Historial"};
+  const titulos={dashboard:"Inicio",nueva_orden:oe?"Editar Orden":"Nueva Orden",ordenes:"Órdenes",agenda:"Agenda",pendientes:"Recordatorios",directorio:"Directorio",config:"Configuración",historial_completo:"Historial",administracion:"Administración"};
   return (
     <div style={{minHeight:"100vh",background:C.gris}}>
       <Header titulo={titulos[vista]||"EMB"} usuario={usuario} onLogout={pedirLogout} onLogoClick={()=>intentarNavegar(()=>{setOe(null);setSelec(null);setVista("dashboard");})}/>
@@ -2752,8 +2959,9 @@ function App(){
         {vista==="directorio"&&<Directorio usuario={usuario}/>}
         {vista==="config"&&<Config usuario={usuario} onLogout={pedirLogout} historial={historial} onVerHistorial={()=>setVista("historial_completo")}/>}
         {vista==="historial_completo"&&<HistorialCompleto usuario={usuario} onVolver={()=>setVista("config")}/>}
+        {vista==="administracion"&&tieneAccesoContab(usuario)&&<Administracion usuario={usuario}/>}
       </div>
-      <Nav vista={vista} setVista={v=>intentarNavegar(()=>{setOe(null);setVista(v);setSelec(null);})} notifs={notifs.length}/>
+      <Nav vista={vista} setVista={v=>intentarNavegar(()=>{setOe(null);setVista(v);setSelec(null);})} notifs={notifs.length} usuario={usuario}/>
       {confirmSalida&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
