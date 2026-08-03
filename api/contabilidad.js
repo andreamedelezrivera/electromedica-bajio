@@ -48,11 +48,20 @@ module.exports = async (req, res) => {
       `${SUPABASE_URL}/rest/v1/usuarios?id=eq.${encodeURIComponent(usuario_id)}&select=id,pin`,
       { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
     );
+    if (!verifResp.ok) {
+      const errBody = await verifResp.text().catch(() => "");
+      res.status(500).json({ error: "No se pudo verificar la identidad contra Supabase (revisar SUPABASE_SERVICE_ROLE_KEY)", detalle: errBody });
+      return;
+    }
     const verifData = await verifResp.json();
     const fila = Array.isArray(verifData) ? verifData[0] : null;
-    const pinOk = fila && String(fila.pin ?? "").trim() === String(pin ?? "").trim();
-    if (!verifResp.ok || !pinOk) {
-      res.status(401).json({ error: "PIN incorrecto" });
+    if (!fila) {
+      res.status(401).json({ error: "Usuario no encontrado" });
+      return;
+    }
+    const pinOk = String(fila.pin ?? "").trim() === String(pin ?? "").trim();
+    if (!pinOk) {
+      res.status(401).json({ error: "PIN incorrecto", pinRecibidoLargo: String(pin ?? "").length, pinGuardadoLargo: String(fila.pin ?? "").length });
       return;
     }
 
