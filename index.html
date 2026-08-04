@@ -254,6 +254,131 @@ async function generarPDFOrden(orden){
   a.href=url;a.download=nombreArchivo;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),4000);
 }
+const MESES_ES=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+function fechaLargaMX(iso){
+  const d=iso?new Date(iso+"T00:00:00"):new Date();
+  return `${d.getDate()} de ${MESES_ES[d.getMonth()]} del ${d.getFullYear()}`;
+}
+function siguienteFolioRecibo(recibos){
+  let max=10;
+  (recibos||[]).forEach(x=>{const m=/REC-(\d+)/i.exec(x.folio||"");if(m)max=Math.max(max,parseInt(m[1],10));});
+  return `REC-${String(max+1).padStart(3,"0")}`;
+}
+function siguienteEfe(recibos){
+  let max=4;
+  (recibos||[]).forEach(x=>{const m=/EFE-(\d+)/i.exec(x.referencia||"");if(m)max=Math.max(max,parseInt(m[1],10));});
+  return `EFE-${String(max+1).padStart(3,"0")}`;
+}
+function construirReciboPDF(r){
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:"pt",format:"letter"});
+  const W=doc.internal.pageSize.getWidth();
+  const H=doc.internal.pageSize.getHeight();
+  const M=40;
+  if(doc.setGState&&doc.GState){
+    try{
+      doc.setGState(new doc.GState({opacity:0.06}));
+      doc.addImage(LOGO_DATA,"PNG",W/2-150,H/2-170,300,300);
+      doc.setGState(new doc.GState({opacity:1}));
+    }catch(e){}
+  }
+  let y=54;
+  try{doc.addImage(LOGO_DATA,"PNG",M,y-24,46,46);}catch(e){}
+  doc.setFont(undefined,"bold");doc.setFontSize(16);doc.setTextColor("#1B3A6B");
+  doc.text("ELECTROMÉDICA DEL BAJÍO",M+56,y);
+  doc.setFont(undefined,"normal");doc.setFontSize(9.5);doc.setTextColor("#5a6b82");
+  doc.text("S.A. de C.V. · RFC: EBA090827448",M+56,y+15);
+  y+=32;
+  doc.setDrawColor("#1B3A6B");doc.setLineWidth(2);doc.line(M,y,W-M,y);
+  y+=26;
+  doc.setFont(undefined,"bold");doc.setFontSize(17);doc.setTextColor("#1B3A6B");
+  doc.text("RECIBO DE PAGO",M,y);
+  doc.setFont(undefined,"normal");doc.setFontSize(10.5);doc.setTextColor("#000000");
+  doc.text(`No. Recibo: ${r.folio}`,W-M,y-8,{align:"right"});
+  doc.text(`Fecha: ${r.fecha}`,W-M,y+8,{align:"right"});
+  y+=22;
+  function bloque(titulo,lineas){
+    const lh=13;const inner=[];
+    lineas.forEach(l=>{doc.splitTextToSize(String(l||""),W-2*M-24).forEach(p=>inner.push(p));});
+    const boxH=18+inner.length*lh+6;
+    doc.setDrawColor("#c9d3e0");doc.setLineWidth(0.8);doc.roundedRect(M,y,W-2*M,boxH,4,4);
+    doc.setFont(undefined,"bold");doc.setFontSize(8.5);doc.setTextColor("#1B3A6B");
+    doc.text(titulo.toUpperCase(),M+12,y+15);
+    doc.setFont(undefined,"normal");doc.setFontSize(10);doc.setTextColor("#2b2b2b");
+    let ly=y+15+lh;inner.forEach(p=>{doc.text(p,M+12,ly);ly+=lh;});
+    y+=boxH+10;
+  }
+  bloque("Emisor",["Electromédica del Bajío S.A. de C.V.","Francisco Alcocer Pozo #318, Col. Los Candiles, Corregidora, Qro., C.P. 76903","Tel. 442 909 4560"]);
+  const cli=[`${r.cliente_nombre||""}${r.cliente_rfc?"    ·    RFC: "+r.cliente_rfc:""}`];
+  if(r.cliente_direccion)cli.push(r.cliente_direccion);
+  if(r.cliente_telefono)cli.push("Tel.: "+r.cliente_telefono);
+  bloque("Cliente",cli);
+  const c0={x:M,w:W-2*M-230},c1={x:0,w:60},c2={x:0,w:85},c3={x:0,w:85};
+  c1.x=c0.x+c0.w;c2.x=c1.x+c1.w;c3.x=c2.x+c2.w;
+  doc.setFillColor("#1B3A6B");doc.rect(M,y,W-2*M,20,"F");
+  doc.setFont(undefined,"bold");doc.setFontSize(9);doc.setTextColor("#ffffff");
+  doc.text("CONCEPTO",c0.x+6,y+13);
+  doc.text("CANT.",c1.x+c1.w/2,y+13,{align:"center"});
+  doc.text("P. UNITARIO",c2.x+c2.w-6,y+13,{align:"right"});
+  doc.text("IMPORTE",c3.x+c3.w-6,y+13,{align:"right"});
+  y+=20;
+  doc.setFont(undefined,"normal");doc.setFontSize(9.5);doc.setTextColor("#2b2b2b");
+  const conLines=doc.splitTextToSize(String(r.concepto||""),c0.w-10);
+  const rowH=Math.max(conLines.length*12+8,22);
+  conLines.forEach((p,i)=>doc.text(p,c0.x+6,y+13+i*12));
+  doc.text(String(r.cantidad||1),c1.x+c1.w/2,y+13,{align:"center"});
+  doc.text(mxn(r.precio_unitario),c2.x+c2.w-6,y+13,{align:"right"});
+  doc.text(mxn(r.importe),c3.x+c3.w-6,y+13,{align:"right"});
+  doc.setDrawColor("#c9d3e0");doc.setLineWidth(0.5);doc.line(M,y+rowH,W-M,y+rowH);
+  y+=rowH+14;
+  const tX=W-M-210,tW=210;
+  doc.setFillColor("#eef3fb");doc.rect(tX,y-13,tW,22,"F");
+  doc.setFont(undefined,"bold");doc.setFontSize(12);doc.setTextColor("#1B3A6B");
+  doc.text("TOTAL",tX+8,y+2);doc.text(mxn(r.total),tX+tW-8,y+2,{align:"right"});
+  y+=26;
+  if(r.anticipo_recibido!=null){
+    doc.setFont(undefined,"normal");doc.setFontSize(10.5);doc.setTextColor("#2b2b2b");
+    doc.text("Anticipo recibido",tX+8,y);doc.text(mxn(r.anticipo_recibido),tX+tW-8,y,{align:"right"});
+    y+=18;
+  }
+  if(r.saldo_pendiente!=null){
+    doc.setFont(undefined,"bold");doc.setFontSize(10.5);doc.setTextColor("#b03535");
+    doc.text("Saldo pendiente",tX+8,y);doc.text(mxn(r.saldo_pendiente),tX+tW-8,y,{align:"right"});
+    y+=18;
+  }
+  y+=14;
+  doc.setFont(undefined,"bold");doc.setFontSize(8.5);doc.setTextColor("#1B3A6B");
+  doc.text("FORMA DE PAGO",M,y);y+=15;
+  doc.setFont(undefined,"normal");doc.setFontSize(10);doc.setTextColor("#2b2b2b");
+  doc.text(`Forma: ${r.forma_pago||""}`,M,y);y+=14;
+  if(r.referencia){doc.text(`Referencia / No. operación: ${r.referencia}`,M,y);y+=14;}
+  y+=30;
+  doc.setDrawColor("#444444");doc.setLineWidth(1);doc.line(W/2-125,y,W/2+125,y);y+=14;
+  doc.setFont(undefined,"bold");doc.setFontSize(10);doc.setTextColor("#2b2b2b");
+  doc.text(r.recibido_por||"",W/2,y,{align:"center"});y+=13;
+  doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor("#5a6b82");
+  if(r.recibido_cargo){doc.text(r.recibido_cargo,W/2,y,{align:"center"});y+=12;}
+  doc.text("Electromédica del Bajío S.A. de C.V.",W/2,y,{align:"center"});y+=22;
+  doc.setFont(undefined,"italic");doc.setFontSize(8.5);doc.setTextColor("#8a8a8a");
+  doc.splitTextToSize("Este documento no es un comprobante fiscal (CFDI). Emitido únicamente como constancia interna de pago.",W-2*M).forEach(p=>{doc.text(p,W/2,y,{align:"center"});y+=11;});
+  doc.setFillColor("#1B3A6B");doc.rect(0,H-30,W,30,"F");
+  doc.setFont(undefined,"normal");doc.setFontSize(8.5);doc.setTextColor("#dbe6f5");
+  doc.text("Francisco Alcocer Pozo #318, Col. Los Candiles, Corregidora, Qro., C.P. 76903 · Tel. 442 909 4560",W/2,H-11,{align:"center"});
+  const nombreArchivo=`${r.folio}_${(r.cliente_nombre||"cliente").replace(/[^a-zA-Z0-9]+/g,"_")}.pdf`;
+  return {blob:doc.output("blob"),nombreArchivo};
+}
+async function guardarBlobPDF(blob,nombreArchivo){
+  if(window.showSaveFilePicker){
+    try{
+      const handle=await window.showSaveFilePicker({suggestedName:nombreArchivo,types:[{description:"PDF",accept:{"application/pdf":[".pdf"]}}]});
+      const writable=await handle.createWritable();await writable.write(blob);await writable.close();return;
+    }catch(e){if(e.name==="AbortError")return;}
+  }
+  const url=URL.createObjectURL(blob);const a=document.createElement("a");
+  a.href=url;a.download=nombreArchivo;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+async function generarReciboPDF(r){const {blob,nombreArchivo}=construirReciboPDF(r);await guardarBlobPDF(blob,nombreArchivo);}
 function blobABase64(blob){
   return new Promise((resolve,reject)=>{
     const reader=new FileReader();
@@ -2790,6 +2915,103 @@ function FormContab({usuario,tabla,registro,onClose,onSaved}){
     </div>
   );
 }
+function ReciboForm({usuario,cobro,onClose,onGenerado}){
+  const cacheCli=leerClientesCache().find(c=>c.nombre&&cobro.cliente&&c.nombre.toLowerCase().trim()===cobro.cliente.toLowerCase().trim());
+  const pendiente=Number(cobro.monto_total||0)-Number(cobro.cobrado||0);
+  const [recibos,setRecibos]=useState([]);
+  const [folio,setFolio]=useState("");
+  const [cliente,setCliente]=useState(cobro.cliente||"");
+  const [rfc,setRfc]=useState("");
+  const [direccion,setDireccion]=useState(cacheCli?.direccion||"");
+  const [telefono,setTelefono]=useState(cacheCli?.telefono||"");
+  const [concepto,setConcepto]=useState(cobro.concepto||"");
+  const [tipo,setTipo]=useState("Anticipo");
+  const [importe,setImporte]=useState(pendiente>0?String(pendiente):"");
+  const [forma,setForma]=useState("Efectivo");
+  const [referencia,setReferencia]=useState("");
+  const [sumar,setSumar]=useState(true);
+  const [recibidoPor,setRecibidoPor]=useState(usuario.id);
+  const [gen,setGen]=useState(false);
+  const [err,setErr]=useState("");
+  useEffect(()=>{(async()=>{
+    const r=await contabFetch(usuario,"contab_recibos","GET","select=folio,referencia");
+    const lista=r.ok&&Array.isArray(r.data)?r.data:[];
+    setRecibos(lista);setFolio(siguienteFolioRecibo(lista));
+  })();},[]);
+  const numOk=v=>v===""||/^\d*\.?\d*$/.test(v);
+  async function generar(){
+    if(!String(importe||"").trim()||Number(importe)<=0){setErr("Captura el importe de este pago.");return;}
+    if(!folio.trim()){setErr("Falta el folio del recibo.");return;}
+    setGen(true);setErr("");
+    const imp=Number(importe);
+    let ref=referencia.trim();
+    if(forma==="Efectivo"&&!ref)ref=siguienteEfe(recibos);
+    const prefijo=tipo==="Anticipo"?"ANTICIPO - ":tipo==="Finiquito"?"FINIQUITO - ":"";
+    const conceptoLinea=prefijo+concepto;
+    const anticipo=tipo==="Anticipo"?imp:null;
+    const saldo=tipo==="Anticipo"?Math.max(0,Number(cobro.monto_total||0)-Number(cobro.cobrado||0)-imp):null;
+    const u=USUARIOS.find(x=>x.id===Number(recibidoPor));
+    const r={
+      folio,fecha:fechaLargaMX(),
+      cliente_nombre:cliente,cliente_rfc:rfc,cliente_direccion:direccion,cliente_telefono:telefono,
+      concepto:conceptoLinea,cantidad:1,precio_unitario:imp,importe:imp,
+      total:imp,anticipo_recibido:anticipo,saldo_pendiente:saldo,
+      forma_pago:forma,referencia:ref,
+      recibido_por:u?.nombre||"",recibido_cargo:u?.id===1?"Directora de Ingeniería Biomédica":""
+    };
+    try{await generarReciboPDF(r);}catch(e){setErr("No se pudo generar el PDF: "+e.message);setGen(false);return;}
+    const registro={
+      folio,tipo_pago:forma==="Efectivo"?"efectivo":forma==="Transferencia"?"transferencia":"otro",
+      referencia:ref,cliente_nombre:cliente,cliente_rfc:rfc||null,cliente_direccion:direccion||null,cliente_telefono:telefono||null,
+      conceptos:[{descripcion:conceptoLinea,cantidad:1,precio_unitario:imp,importe:imp}],
+      total:imp,anticipo_recibido:anticipo,saldo_pendiente:saldo,es_finiquito:tipo==="Finiquito",
+      forma_pago:forma,recibido_por:u?.nombre||null,cuenta_cobrar_id:cobro.id,creado_por:usuario.id
+    };
+    const rr=await contabFetch(usuario,"contab_recibos","POST","",registro);
+    if(!rr.ok){setErr("El PDF se generó pero no se pudo guardar el recibo: "+(rr.error||""));setGen(false);return;}
+    if(sumar){
+      await contabFetch(usuario,"contab_cuentas_cobrar","PATCH",`id=eq.${cobro.id}`,{cobrado:Number(cobro.cobrado||0)+imp});
+    }
+    setGen(false);onGenerado();
+  }
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,overflowY:"auto",padding:20}}>
+      <div style={{width:"100%",maxWidth:460,margin:"0 auto"}}>
+        <Card>
+          <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:4}}>🧾 Generar recibo</div>
+          <div style={{fontSize:12,color:C.texto,marginBottom:14}}>Desde el cobro {cobro.folio||""} · Pendiente: {mxn(pendiente)}</div>
+          <Inp lbl="Folio del recibo" val={folio} set={setFolio} req/>
+          <Inp lbl="Cliente" val={cliente} set={setCliente} req/>
+          <Inp lbl="RFC del cliente" val={rfc} set={setRfc}/>
+          <Inp lbl="Dirección" val={direccion} set={setDireccion}/>
+          <Inp lbl="Teléfono" val={telefono} set={setTelefono}/>
+          <TA lbl="Concepto" val={concepto} set={setConcepto} req/>
+          <Sel lbl="Tipo de pago" val={tipo} set={setTipo} opts={["Anticipo","Finiquito","Pago único"]} req/>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Importe de este pago <span style={{color:C.error}}>*</span></div>
+            <input type="text" inputMode="decimal" value={importe} onChange={e=>{if(numOk(e.target.value))setImporte(e.target.value);}} placeholder="0.00" style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,outline:"none"}}/>
+          </div>
+          <Sel lbl="Forma de pago" val={forma} set={setForma} opts={CONTAB_METODOS} req/>
+          <Inp lbl={forma==="Efectivo"?"Referencia (si se deja vacío se asigna EFE-### solo)":"Referencia / No. de operación"} val={referencia} set={setReferencia}/>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>Pago recibido por</div>
+            <select value={recibidoPor} onChange={e=>setRecibidoPor(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff",outline:"none"}}>
+              {USUARIOS.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+            </select>
+          </div>
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:C.texto,marginBottom:14,cursor:"pointer"}}>
+            <input type="checkbox" checked={sumar} onChange={e=>setSumar(e.target.checked)}/> Sumar este pago a lo cobrado del registro
+          </label>
+          {err&&<div style={{fontSize:13,color:C.error,marginBottom:10}}>⚠️ {err}</div>}
+          <div style={{display:"flex",gap:6}}>
+            <Btn ch={gen?"Generando...":"Generar PDF y guardar"} onClick={generar} dis={gen} color={C.exito}/>
+            <Btn ch="Cancelar" onClick={onClose} out/>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
 function Administracion({usuario}){
   const [tab,setTab]=useState("resumen");
   const [cargando,setCargando]=useState(true);
@@ -2803,6 +3025,7 @@ function Administracion({usuario}){
   const [formTabla,setFormTabla]=useState(null);
   const [formReg,setFormReg]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
+  const [reciboCobro,setReciboCobro]=useState(null);
   const [aviso,setAviso]=useState("");
   function abrirForm(t,reg){setFormReg(reg||null);setFormTabla(t);}
   function cerrarForm(){setFormTabla(null);setFormReg(null);}
@@ -2922,6 +3145,7 @@ function Administracion({usuario}){
                 <div style={{fontSize:12,color:C.texto}}>{r.concepto}</div>
                 <div style={{fontSize:12,color:C.texto}}>Total: {mxn(r.monto_total)} · Cobrado: {mxn(r.cobrado)} · Pendiente: <strong>{mxn(pend)}</strong></div>
                 {acc("contab_cuentas_cobrar",r)}
+                {!soloLectura&&<div style={{marginTop:4}}><span onClick={()=>setReciboCobro(r)} style={{cursor:"pointer",fontSize:12,color:C.marino,fontWeight:700}}>🧾 Generar recibo</span></div>}
               </div>
             );
           })}
@@ -3007,6 +3231,7 @@ function Administracion({usuario}){
       )}
 
       {formTabla&&<FormContab usuario={usuario} tabla={formTabla} registro={formReg} onClose={cerrarForm} onSaved={()=>{cerrarForm();cargarTodo();}}/>}
+      {reciboCobro&&<ReciboForm usuario={usuario} cobro={reciboCobro} onClose={()=>setReciboCobro(null)} onGenerado={()=>{setReciboCobro(null);cargarTodo();}}/>}
       {confirmDel&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
