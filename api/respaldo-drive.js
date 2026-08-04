@@ -29,16 +29,12 @@ async function obtenerOCrearCarpeta(drive, nombre, parentId) {
   });
   return creada.data.id;
 }
-async function obtenerOCrearCarpetaRaiz(drive, nombre) {
-  const q = `name='${nombre.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-  const listado = await drive.files.list({ q, fields: "files(id,name)" });
-  if (listado.data.files && listado.data.files.length > 0) return listado.data.files[0].id;
-  const creada = await drive.files.create({
-    resource: { name: nombre, mimeType: "application/vnd.google-apps.folder", parents: ["root"] },
-    fields: "id"
-  });
-  return creada.data.id;
-}
+// Carpeta destino de los respaldos. Por defecto la carpeta que Andrea compartió
+// (https://drive.google.com/drive/folders/17w59n6ME-_CsqwKgqCsSTysI0xTbbXnR).
+// Se puede sobreescribir con la variable de entorno GOOGLE_DRIVE_NOTIF_FOLDER_ID.
+// IMPORTANTE: la cuenta de Google del OAuth (electromedica.bajio@gmail.com) debe
+// tener acceso de EDITOR a esa carpeta para poder subir archivos ahí.
+const CARPETA_NOTIF_DEFAULT = "17w59n6ME-_CsqwKgqCsSTysI0xTbbXnR";
 
 module.exports = async (req, res) => {
   const secret = process.env.CRON_SECRET;
@@ -86,11 +82,13 @@ module.exports = async (req, res) => {
 
     const quien = await drive.about.get({ fields: "user(emailAddress,displayName)" });
 
-    const carpetaRaizId = await obtenerOCrearCarpetaRaiz(drive, "Notificaciones EMB");
+    const carpetaRaizId = process.env.GOOGLE_DRIVE_NOTIF_FOLDER_ID || CARPETA_NOTIF_DEFAULT;
     const carpetaAnioId = await obtenerOCrearCarpeta(drive, String(anio), carpetaRaizId);
+    const nombreMes = `${String(mes + 1).padStart(2, "0")}-${NOMBRES_MES[mes]}`;
+    const carpetaMesId = await obtenerOCrearCarpeta(drive, nombreMes, carpetaAnioId);
 
     const archivoCreado = await drive.files.create({
-      resource: { name: nombreArchivo, parents: [carpetaAnioId] },
+      resource: { name: nombreArchivo, parents: [carpetaMesId] },
       media: { mimeType: "text/csv", body: csv },
       fields: "id,webViewLink"
     });
@@ -112,7 +110,8 @@ module.exports = async (req, res) => {
       cuentaGoogle: quien.data.user,
       link: archivoCreado.data.webViewLink,
       carpetaRaizId,
-      carpetaAnioId
+      carpetaAnioId,
+      carpetaMesId
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
