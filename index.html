@@ -2653,6 +2653,143 @@ function Pendientes({usuario}){
 const CONTAB_CATS_ENTRADA=["COBROS","ANTICIPOS","PAGOS FINALES"];
 const CONTAB_CATS_SALIDA=["GASTOS OPERATIVOS","GASTOS DE PERSONAL","GASTOS DE PROYECTO","COMPRAS","IMPUESTOS","RETIRO SOCIO GUILLERMO"];
 const CONTAB_CUENTAS=["BANREGIO","CAJA","SANTANDER"];
+const CONTAB_METODOS=["Efectivo","Transferencia","Tarjeta","Cheque"];
+const CONTAB_SCHEMAS={
+  contab_movimientos:{titulo:"movimiento",campos:[
+    {k:"fecha",lbl:"Fecha",t:"date",req:true},
+    {k:"tipo",lbl:"Tipo",t:"sel",opts:["INGRESO","GASTO"],req:true},
+    {k:"categoria",lbl:"Categoría",t:"selCat",req:true},
+    {k:"monto",lbl:"Monto",t:"num",req:true},
+    {k:"cuenta",lbl:"Cuenta",t:"sel",opts:CONTAB_CUENTAS,req:true},
+    {k:"metodo",lbl:"Método de pago",t:"sel",opts:CONTAB_METODOS},
+    {k:"descripcion",lbl:"Descripción",t:"area"},
+    {k:"cliente_proveedor",lbl:"Cliente / Proveedor",t:"text"},
+    {k:"proyecto",lbl:"Proyecto",t:"text"},
+    {k:"factura",lbl:"Factura",t:"text"},
+  ]},
+  contab_cuentas_cobrar:{titulo:"cuenta por cobrar",campos:[
+    {k:"folio",lbl:"Folio",t:"text"},
+    {k:"cliente",lbl:"Cliente",t:"text",req:true},
+    {k:"proyecto",lbl:"Proyecto",t:"text"},
+    {k:"concepto",lbl:"Concepto",t:"area"},
+    {k:"monto_total",lbl:"Monto total",t:"num",req:true},
+    {k:"cobrado",lbl:"Cobrado",t:"num"},
+    {k:"fecha_compromiso",lbl:"Fecha compromiso",t:"date"},
+    {k:"factura",lbl:"Factura",t:"text"},
+    {k:"observaciones",lbl:"Observaciones",t:"area"},
+  ]},
+  contab_cuentas_pagar:{titulo:"cuenta por pagar",campos:[
+    {k:"folio",lbl:"Folio",t:"text"},
+    {k:"beneficiario",lbl:"Beneficiario",t:"text",req:true},
+    {k:"proyecto",lbl:"Proyecto",t:"text"},
+    {k:"concepto",lbl:"Concepto",t:"area"},
+    {k:"monto_total",lbl:"Monto total",t:"num",req:true},
+    {k:"pagado",lbl:"Pagado",t:"num"},
+    {k:"fecha_compromiso",lbl:"Fecha compromiso",t:"date"},
+    {k:"factura",lbl:"Factura",t:"text"},
+    {k:"observaciones",lbl:"Observaciones",t:"area"},
+  ]},
+  contab_nomina:{titulo:"registro de nómina",campos:[
+    {k:"folio",lbl:"Folio",t:"text"},
+    {k:"empleado_id",lbl:"Empleado",t:"selU",req:true},
+    {k:"periodo",lbl:"Periodo",t:"text",ph:"ej. 1-15 JUNIO"},
+    {k:"sueldo_base",lbl:"Sueldo base",t:"num"},
+    {k:"viaticos",lbl:"Viáticos",t:"num"},
+    {k:"bonos",lbl:"Bonos",t:"num"},
+    {k:"pagado",lbl:"Pagado",t:"num"},
+    {k:"proyecto",lbl:"Proyecto",t:"text"},
+  ]},
+  contab_proveedores:{titulo:"proveedor",campos:[
+    {k:"proveedor",lbl:"Proveedor",t:"text",req:true},
+    {k:"descripcion",lbl:"Descripción",t:"area"},
+    {k:"nombre_contacto",lbl:"Nombre de contacto",t:"text"},
+    {k:"telefono",lbl:"Teléfono",t:"text"},
+  ]},
+};
+function FormContab({usuario,tabla,registro,onClose,onSaved}){
+  const esquema=CONTAB_SCHEMAS[tabla];
+  const [f,setF]=useState(()=>{
+    const init={};
+    esquema.campos.forEach(c=>{init[c.k]="";});
+    if(registro){
+      esquema.campos.forEach(c=>{
+        if(c.k==="monto")init.monto=String(registro.tipo==="INGRESO"?(registro.entrada||""):(registro.salida||""));
+        else if(registro[c.k]!==undefined&&registro[c.k]!==null)init[c.k]=String(registro[c.k]);
+      });
+    }
+    return init;
+  });
+  const [guardando,setGuardando]=useState(false);
+  const [err,setErr]=useState("");
+  function up(k,v){setF(p=>{const n={...p,[k]:v};if(k==="tipo")n.categoria="";return n;});}
+  async function guardar(){
+    for(const c of esquema.campos){
+      if(c.req&&!String(f[c.k]||"").trim()){setErr(`Falta el campo: ${c.lbl}`);return;}
+    }
+    setGuardando(true);setErr("");
+    const datos={};
+    esquema.campos.forEach(c=>{
+      if(c.k==="monto")return;
+      let v=f[c.k];
+      if(c.t==="num")v=v===""?0:Number(v);
+      else if(c.t==="selU")v=v===""?null:Number(v);
+      else if(v==="")v=null;
+      datos[c.k]=v;
+    });
+    if(tabla==="contab_movimientos"){
+      const monto=Number(f.monto||0);
+      datos.entrada=f.tipo==="INGRESO"?monto:0;
+      datos.salida=f.tipo==="GASTO"?monto:0;
+      datos.responsable_id=usuario.id;
+    }
+    const r=registro
+      ? await contabFetch(usuario,tabla,"PATCH",`id=eq.${registro.id}`,datos)
+      : await contabFetch(usuario,tabla,"POST","",datos);
+    setGuardando(false);
+    if(!r.ok){setErr(r.error||"No se pudo guardar.");return;}
+    onSaved();
+  }
+  function campo(c){
+    if(c.t==="num")return (
+      <div key={c.k} style={{marginBottom:14}}>
+        <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>{c.lbl}{c.req&&<span style={{color:C.error}}> *</span>}</div>
+        <input type="text" inputMode="decimal" value={f[c.k]} onChange={e=>{const v=e.target.value;if(/^\d*\.?\d*$/.test(v))up(c.k,v);}} placeholder="0.00" style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,outline:"none"}}/>
+      </div>
+    );
+    if(c.t==="selU")return (
+      <div key={c.k} style={{marginBottom:14}}>
+        <div style={{fontSize:13,color:C.texto,marginBottom:4,fontWeight:600}}>{c.lbl}{c.req&&<span style={{color:C.error}}> *</span>}</div>
+        <select value={f[c.k]} onChange={e=>up(c.k,e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1.5px solid ${C.borde}`,fontSize:15,background:"#fff",outline:"none"}}>
+          <option value="">-- Seleccionar --</option>
+          {USUARIOS.map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}
+        </select>
+      </div>
+    );
+    if(c.t==="selCat"){
+      const opts=f.tipo==="INGRESO"?CONTAB_CATS_ENTRADA:f.tipo==="GASTO"?CONTAB_CATS_SALIDA:[];
+      return <Sel key={c.k} lbl={c.lbl} val={f[c.k]} set={v=>up(c.k,v)} opts={opts} req={c.req}/>;
+    }
+    if(c.t==="sel")return <Sel key={c.k} lbl={c.lbl} val={f[c.k]} set={v=>up(c.k,v)} opts={c.opts} req={c.req}/>;
+    if(c.t==="area")return <TA key={c.k} lbl={c.lbl} val={f[c.k]} set={v=>up(c.k,v)} req={c.req} ph={c.ph}/>;
+    if(c.t==="date")return <Inp key={c.k} lbl={c.lbl} val={f[c.k]} set={v=>up(c.k,v)} type="date" req={c.req}/>;
+    return <Inp key={c.k} lbl={c.lbl} val={f[c.k]} set={v=>up(c.k,v)} req={c.req} ph={c.ph}/>;
+  }
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,overflowY:"auto",padding:20}}>
+      <div style={{width:"100%",maxWidth:440,margin:"0 auto"}}>
+        <Card>
+          <div style={{fontWeight:800,color:C.marino,fontSize:16,marginBottom:14}}>{registro?"Editar":"Nuevo"} {esquema.titulo}</div>
+          {esquema.campos.map(campo)}
+          {err&&<div style={{fontSize:13,color:C.error,marginBottom:10}}>⚠️ {err}</div>}
+          <div style={{display:"flex",gap:6}}>
+            <Btn ch={guardando?"Guardando...":"Guardar"} onClick={guardar} dis={guardando} color={C.exito}/>
+            <Btn ch="Cancelar" onClick={onClose} out/>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
 function Administracion({usuario}){
   const [tab,setTab]=useState("resumen");
   const [cargando,setCargando]=useState(true);
@@ -2663,6 +2800,24 @@ function Administracion({usuario}){
   const [nomina,setNomina]=useState([]);
   const [proveedores,setProveedores]=useState([]);
   const soloLectura=CONTAB_ACCESO[usuario.id]==="r";
+  const [formTabla,setFormTabla]=useState(null);
+  const [formReg,setFormReg]=useState(null);
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [aviso,setAviso]=useState("");
+  function abrirForm(t,reg){setFormReg(reg||null);setFormTabla(t);}
+  function cerrarForm(){setFormTabla(null);setFormReg(null);}
+  async function eliminar(){
+    const {tabla,id}=confirmDel;
+    setConfirmDel(null);
+    const r=await contabFetch(usuario,tabla,"DELETE",`id=eq.${id}`);
+    if(r.ok)cargarTodo();else setAviso(r.error||"No se pudo eliminar.");
+  }
+  const acc=(tabla,reg)=>!soloLectura&&(
+    <div style={{display:"flex",gap:12,marginTop:6}}>
+      <span onClick={()=>abrirForm(tabla,reg)} style={{cursor:"pointer",fontSize:12,color:C.cielo,fontWeight:700}}>✏️ Editar</span>
+      <span onClick={()=>setConfirmDel({tabla,id:reg.id})} style={{cursor:"pointer",fontSize:12,color:C.error,fontWeight:700}}>🗑️ Eliminar</span>
+    </div>
+  );
 
   async function cargarTodo(){
     setCargando(true);setError("");
@@ -2707,6 +2862,7 @@ function Administracion({usuario}){
         <div style={{color:C.marino,fontWeight:800,fontSize:18}}>💼 Administración</div>
       </div>
       {soloLectura&&<div style={{fontSize:12,color:"#8a7500",background:C.amarillo,borderRadius:8,padding:"6px 10px",marginBottom:12,display:"inline-block"}}>👁️ Modo solo lectura</div>}
+      {aviso&&<div style={{fontSize:12,color:C.error,background:"#fdecea",borderRadius:8,padding:"6px 10px",marginBottom:12}}>⚠️ {aviso} <span onClick={()=>setAviso("")} style={{cursor:"pointer",fontWeight:700,marginLeft:8}}>✕</span></div>}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
         {TABS.map(t=>(
           <span key={t.id} onClick={()=>setTab(t.id)} style={{fontSize:12,cursor:"pointer",padding:"6px 12px",borderRadius:14,fontWeight:700,background:tab===t.id?C.marino:"#eee",color:tab===t.id?"#fff":C.texto}}>{t.lbl}</span>
@@ -2753,6 +2909,7 @@ function Administracion({usuario}){
       {tab==="cobrar"&&(
         <Card>
           <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📥 Cuentas por cobrar ({cobrar.length})</div>
+          {!soloLectura&&<Btn ch="+ Nueva cuenta por cobrar" sm onClick={()=>abrirForm("contab_cuentas_cobrar")}/>}
           {cobrar.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
           {cobrar.map(r=>{
             const pend=Number(r.monto_total||0)-Number(r.cobrado||0);
@@ -2764,6 +2921,7 @@ function Administracion({usuario}){
                 </div>
                 <div style={{fontSize:12,color:C.texto}}>{r.concepto}</div>
                 <div style={{fontSize:12,color:C.texto}}>Total: {mxn(r.monto_total)} · Cobrado: {mxn(r.cobrado)} · Pendiente: <strong>{mxn(pend)}</strong></div>
+                {acc("contab_cuentas_cobrar",r)}
               </div>
             );
           })}
@@ -2773,6 +2931,7 @@ function Administracion({usuario}){
       {tab==="pagar"&&(
         <Card>
           <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📤 Cuentas por pagar ({pagar.length})</div>
+          {!soloLectura&&<Btn ch="+ Nueva cuenta por pagar" sm onClick={()=>abrirForm("contab_cuentas_pagar")}/>}
           {pagar.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
           {pagar.map(r=>{
             const pend=Number(r.monto_total||0)-Number(r.pagado||0);
@@ -2784,6 +2943,7 @@ function Administracion({usuario}){
                 </div>
                 <div style={{fontSize:12,color:C.texto}}>{r.concepto}</div>
                 <div style={{fontSize:12,color:C.texto}}>Total: {mxn(r.monto_total)} · Pagado: {mxn(r.pagado)} · Pendiente: <strong>{mxn(pend)}</strong></div>
+                {acc("contab_cuentas_pagar",r)}
               </div>
             );
           })}
@@ -2793,6 +2953,7 @@ function Administracion({usuario}){
       {tab==="nomina"&&(
         <Card>
           <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>👥 Nómina ({nomina.length})</div>
+          {!soloLectura&&<Btn ch="+ Nuevo registro de nómina" sm onClick={()=>abrirForm("contab_nomina")}/>}
           {nomina.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
           {nomina.map(r=>{
             const total=Number(r.sueldo_base||0)+Number(r.viaticos||0)+Number(r.bonos||0);
@@ -2805,6 +2966,7 @@ function Administracion({usuario}){
                 </div>
                 <div style={{fontSize:12,color:C.texto}}>{r.periodo}</div>
                 <div style={{fontSize:12,color:C.texto}}>Total: {mxn(total)} · Pagado: {mxn(r.pagado)} · Pendiente: <strong>{mxn(pend)}</strong></div>
+                {acc("contab_nomina",r)}
               </div>
             );
           })}
@@ -2814,12 +2976,14 @@ function Administracion({usuario}){
       {tab==="proveedores"&&(
         <Card>
           <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>🏭 Proveedores ({proveedores.length})</div>
+          {!soloLectura&&<Btn ch="+ Nuevo proveedor" sm onClick={()=>abrirForm("contab_proveedores")}/>}
           {proveedores.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
           {proveedores.map(r=>(
             <div key={r.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.borde}`}}>
               <strong style={{fontSize:13,color:C.marino}}>{r.proveedor}</strong>
               <div style={{fontSize:12,color:C.texto}}>{r.descripcion}</div>
               <div style={{fontSize:12,color:C.texto}}>{r.nombre_contacto&&`${r.nombre_contacto} · `}{r.telefono}</div>
+              {acc("contab_proveedores",r)}
             </div>
           ))}
         </Card>
@@ -2828,6 +2992,7 @@ function Administracion({usuario}){
       {tab==="movimientos"&&(
         <Card>
           <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📒 Movimientos ({movimientos.length})</div>
+          {!soloLectura&&<Btn ch="+ Nuevo movimiento" sm onClick={()=>abrirForm("contab_movimientos")}/>}
           {movimientos.map(m=>(
             <div key={m.id} style={{padding:"8px 0",borderBottom:`1px solid ${C.borde}`,fontSize:12}}>
               <div style={{display:"flex",justifyContent:"space-between"}}>
@@ -2835,9 +3000,22 @@ function Administracion({usuario}){
                 <strong style={{color:m.tipo==="INGRESO"?C.exito:C.error}}>{m.tipo==="INGRESO"?"+":"-"}{mxn(m.tipo==="INGRESO"?m.entrada:m.salida)}</strong>
               </div>
               <div style={{color:"#aaa"}}>{m.descripcion} {m.cliente_proveedor?`· ${m.cliente_proveedor}`:""} · {m.cuenta}</div>
+              {acc("contab_movimientos",m)}
             </div>
           ))}
         </Card>
+      )}
+
+      {formTabla&&<FormContab usuario={usuario} tabla={formTabla} registro={formReg} onClose={cerrarForm} onSaved={()=>{cerrarForm();cargarTodo();}}/>}
+      {confirmDel&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:14,padding:22,maxWidth:340,width:"100%",maxHeight:"88vh",overflowY:"auto"}}>
+            <div style={{fontWeight:800,color:C.error,fontSize:16,marginBottom:8}}>⚠️ ¿Eliminar este registro?</div>
+            <div style={{fontSize:13,color:C.texto,marginBottom:18}}>Esta acción no se puede deshacer.</div>
+            <Btn ch="Sí, eliminar" onClick={eliminar} color={C.error} full/>
+            <Btn ch="Cancelar" onClick={()=>setConfirmDel(null)} out full/>
+          </div>
+        </div>
       )}
     </div>
   );
