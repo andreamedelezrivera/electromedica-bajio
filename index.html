@@ -3033,7 +3033,19 @@ function Administracion({usuario}){
   const [confirmDel,setConfirmDel]=useState(null);
   const [reciboCobro,setReciboCobro]=useState(null);
   const [movPag,setMovPag]=useState(0);
+  const [filtroCP,setFiltroCP]=useState("pendiente");
   const [aviso,setAviso]=useState("");
+  const chipsEstado=()=>(
+    <div style={{display:"flex",gap:6,margin:"4px 0 12px",flexWrap:"wrap"}}>
+      {[["pendiente","Pendientes"],["realizado","Realizados"],["todos","Todas"]].map(([v,l])=>(
+        <span key={v} onClick={()=>setFiltroCP(v)} style={{fontSize:12,cursor:"pointer",padding:"5px 12px",borderRadius:12,fontWeight:700,background:filtroCP===v?C.cielo:"#eee",color:filtroCP===v?"#fff":C.texto}}>{l}</span>
+      ))}
+    </div>
+  );
+  const filtrarPorEstado=(lista,pagadoKey)=>lista.filter(r=>{
+    const p=Number(r.monto_total||0)-Number(r[pagadoKey]||0);
+    return filtroCP==="todos"?true:filtroCP==="realizado"?p<=0:p>0;
+  });
   function abrirForm(t,reg){setFormReg(reg||null);setFormTabla(t);}
   function cerrarForm(){setFormTabla(null);setFormReg(null);}
   async function eliminar(){
@@ -3140,8 +3152,8 @@ function Administracion({usuario}){
         <Card>
           <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📥 Cuentas por cobrar ({cobrar.length})</div>
           {!soloLectura&&<Btn ch="+ Nueva cuenta por cobrar" sm onClick={()=>abrirForm("contab_cuentas_cobrar")}/>}
-          {cobrar.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
-          {cobrar.map(r=>{
+          {chipsEstado()}
+          {(()=>{const f=filtrarPorEstado(cobrar,"cobrado");return f.length===0?<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>:f.map(r=>{
             const pend=Number(r.monto_total||0)-Number(r.cobrado||0);
             return (
               <div key={r.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.borde}`}}>
@@ -3155,7 +3167,7 @@ function Administracion({usuario}){
                 {!soloLectura&&<div style={{marginTop:4}}><span onClick={()=>setReciboCobro(r)} style={{cursor:"pointer",fontSize:12,color:C.marino,fontWeight:700}}>🧾 Generar recibo</span></div>}
               </div>
             );
-          })}
+          })})()}
         </Card>
       )}
 
@@ -3163,8 +3175,8 @@ function Administracion({usuario}){
         <Card>
           <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📤 Cuentas por pagar ({pagar.length})</div>
           {!soloLectura&&<Btn ch="+ Nueva cuenta por pagar" sm onClick={()=>abrirForm("contab_cuentas_pagar")}/>}
-          {pagar.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
-          {pagar.map(r=>{
+          {chipsEstado()}
+          {(()=>{const f=filtrarPorEstado(pagar,"pagado");return f.length===0?<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>:f.map(r=>{
             const pend=Number(r.monto_total||0)-Number(r.pagado||0);
             return (
               <div key={r.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.borde}`}}>
@@ -3177,7 +3189,7 @@ function Administracion({usuario}){
                 {acc("contab_cuentas_pagar",r)}
               </div>
             );
-          })}
+          })})()}
         </Card>
       )}
 
