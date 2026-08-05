@@ -255,6 +255,12 @@ async function generarPDFOrden(orden){
   setTimeout(()=>URL.revokeObjectURL(url),4000);
 }
 const MESES_ES=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+function mesAnioLabel(iso){
+  if(!iso)return "SIN FECHA";
+  const d=new Date(iso+"T00:00:00");
+  if(isNaN(d))return "SIN FECHA";
+  return `${MESES_ES[d.getMonth()].toUpperCase()} ${d.getFullYear()}`;
+}
 function fechaLargaMX(iso){
   const d=iso?new Date(iso+"T00:00:00"):new Date();
   return `${d.getDate()} de ${MESES_ES[d.getMonth()]} del ${d.getFullYear()}`;
@@ -3026,6 +3032,7 @@ function Administracion({usuario}){
   const [formReg,setFormReg]=useState(null);
   const [confirmDel,setConfirmDel]=useState(null);
   const [reciboCobro,setReciboCobro]=useState(null);
+  const [movPag,setMovPag]=useState(0);
   const [aviso,setAviso]=useState("");
   function abrirForm(t,reg){setFormReg(reg||null);setFormTabla(t);}
   function cerrarForm(){setFormTabla(null);setFormReg(null);}
@@ -3213,22 +3220,44 @@ function Administracion({usuario}){
         </Card>
       )}
 
-      {tab==="movimientos"&&(
-        <Card>
-          <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📒 Movimientos ({movimientos.length})</div>
-          {!soloLectura&&<Btn ch="+ Nuevo movimiento" sm onClick={()=>abrirForm("contab_movimientos")}/>}
-          {movimientos.map(m=>(
-            <div key={m.id} style={{padding:"8px 0",borderBottom:`1px solid ${C.borde}`,fontSize:12}}>
-              <div style={{display:"flex",justifyContent:"space-between"}}>
-                <span style={{color:C.texto}}>{m.fecha} · {m.categoria}</span>
-                <strong style={{color:m.tipo==="INGRESO"?C.exito:C.error}}>{m.tipo==="INGRESO"?"+":"-"}{mxn(m.tipo==="INGRESO"?m.entrada:m.salida)}</strong>
+      {tab==="movimientos"&&(()=>{
+        const PAG=20;
+        const totalPags=Math.max(1,Math.ceil(movimientos.length/PAG));
+        const pagina=Math.min(movPag,totalPags-1);
+        const slice=movimientos.slice(pagina*PAG,pagina*PAG+PAG);
+        let ultimoMes=null;
+        return (
+          <Card>
+            <div style={{fontWeight:700,color:C.marino,marginBottom:10}}>📒 Movimientos ({movimientos.length})</div>
+            {!soloLectura&&<Btn ch="+ Nuevo movimiento" sm onClick={()=>abrirForm("contab_movimientos")}/>}
+            {slice.map(m=>{
+              const etq=mesAnioLabel(m.fecha);
+              const sep=etq!==ultimoMes;ultimoMes=etq;
+              return (
+                <React.Fragment key={m.id}>
+                  {sep&&<div style={{background:C.marino,color:"#fff",fontWeight:700,fontSize:12,letterSpacing:1,padding:"5px 10px",borderRadius:6,marginTop:10,marginBottom:4}}>{etq}</div>}
+                  <div style={{padding:"8px 0",borderBottom:`1px solid ${C.borde}`,fontSize:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between"}}>
+                      <span style={{color:C.texto}}>{m.fecha} · {m.categoria}</span>
+                      <strong style={{color:m.tipo==="INGRESO"?C.exito:C.error}}>{m.tipo==="INGRESO"?"+":"-"}{mxn(m.tipo==="INGRESO"?m.entrada:m.salida)}</strong>
+                    </div>
+                    <div style={{color:"#aaa"}}>{m.descripcion} {m.cliente_proveedor?`· ${m.cliente_proveedor}`:""} · {m.cuenta}</div>
+                    {acc("contab_movimientos",m)}
+                  </div>
+                </React.Fragment>
+              );
+            })}
+            {movimientos.length===0&&<div style={{fontSize:13,color:"#aaa"}}>Sin registros.</div>}
+            {totalPags>1&&(
+              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,marginTop:14}}>
+                <Btn ch="‹ Anterior" sm out dis={pagina<=0} onClick={()=>setMovPag(pagina-1)}/>
+                <span style={{fontSize:12,color:C.texto,fontWeight:700}}>Página {pagina+1} de {totalPags}</span>
+                <Btn ch="Siguiente ›" sm out dis={pagina>=totalPags-1} onClick={()=>setMovPag(pagina+1)}/>
               </div>
-              <div style={{color:"#aaa"}}>{m.descripcion} {m.cliente_proveedor?`· ${m.cliente_proveedor}`:""} · {m.cuenta}</div>
-              {acc("contab_movimientos",m)}
-            </div>
-          ))}
-        </Card>
-      )}
+            )}
+          </Card>
+        );
+      })()}
 
       {formTabla&&<FormContab usuario={usuario} tabla={formTabla} registro={formReg} onClose={cerrarForm} onSaved={()=>{cerrarForm();cargarTodo();}}/>}
       {reciboCobro&&<ReciboForm usuario={usuario} cobro={reciboCobro} onClose={()=>setReciboCobro(null)} onGenerado={()=>{setReciboCobro(null);cargarTodo();}}/>}
